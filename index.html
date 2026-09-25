@@ -73,7 +73,9 @@ tr:last-child td{border-bottom:0}
 .cell-attention{background:var(--attention-bg)!important;color:var(--attention-text)!important;font-weight:700}
 .cell-alert{background:var(--alert-bg)!important;color:var(--alert-text)!important;font-weight:700}
 .badge-text{font-weight:700;text-align:left}.wind-dir{display:inline-flex;align-items:center;gap:5px}.wind-arrow{display:inline-block;font-size:12px}
-.footer-note{font-size:11px;color:var(--muted);margin-top:12px;line-height:1.5}.loader{display:none;text-align:center;padding:28px;color:var(--muted)}.loader.show{display:block}
+.footer-note{font-size:11px;color:var(--muted);margin-top:12px;line-height:1.5}
+.exportbar{display:flex;justify-content:flex-end;margin:10px 0 14px}.export-btn{height:42px;padding:0 16px;background:var(--green);display:inline-flex;align-items:center;gap:8px}.export-btn:hover{filter:brightness(.96)}
+@media(max-width:700px){.exportbar{justify-content:stretch}.export-btn{width:100%;justify-content:center;margin-top:0}}.loader{display:none;text-align:center;padding:28px;color:var(--muted)}.loader.show{display:block}
 @media(max-width:700px){header{position:static}.row{display:block}button{width:100%;height:46px;margin-top:8px}.criteria-link{width:auto;height:auto;margin:0}.suggest{top:78px}.summary{grid-template-columns:repeat(2,1fr)}main{margin-top:12px}th,td{padding:9px 8px;font-size:12px}}
 </style>
 </head>
@@ -90,8 +92,10 @@ tr:last-child td{border-bottom:0}
   <div id="loader" class="loader">Carregando dados meteorológicos…</div>
   <div id="results"></div>
 </main>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
 const $ = id => document.getElementById(id);
+let currentExportData = null;
 let selected = null, debounceTimer = null;
 
 // Regras totalmente independentes do fornecedor de dados.
@@ -332,10 +336,85 @@ function tableHourly(rows,date){
   }).join('')}</tbody></table></div></div>`;
 }
 
+
+function exportSafeName(s){
+  return String(s||'consulta').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9_-]+/g,'_').replace(/^_+|_+$/g,'').slice(0,60) || 'consulta';
+}
+function exportDailyRows(rows){
+  return rows.map(x=>{
+    const a=dailyAlerts(x); const labels=[...new Set(a.map(y=>y.label))];
+    return {
+      'Data': x.date,
+      'Destaques': labels.length ? '⚠ '+labels.join(' · ') : '—',
+      'Mín. °C': displayRuleValue('temp_min_c',x.temp_min_c),
+      'Máx. °C': displayRuleValue('temp_max_c',x.temp_max_c),
+      'UR mín. %': displayRuleValue('rh_min_pct',x.rh_min_pct),
+      'UR máx. %': displayRuleValue('rh_pct',x.rh_max_pct),
+      'Chuva mm': displayRuleValue('rain_mm',x.rain_mm),
+      'Prob. %': displayRuleValue('rh_pct',x.rain_prob_pct),
+      'Vento máx. km/h': displayRuleValue('wind_kmh',x.wind_max_kmh),
+      'Dir. predominante': (num(x.wind_max_kmh)!==null && Number(x.wind_max_kmh)<2) ? 'Calmo' : windDirLabel(x.wind_dir_deg).label,
+      'Dir. graus': num(x.wind_dir_deg)===null ? null : Math.round(Number(x.wind_dir_deg)),
+      'Rajada máx. km/h': displayRuleValue('gust_kmh',x.gust_kmh),
+      'UV máx.': displayRuleValue('uv_max',x.uv_max)
+    };
+  });
+}
+function exportHourlyRows(rows){
+  return rows.map(x=>{
+    const lv=hourlyLevels(x), labels=hourlyAlertLabels(x,lv);
+    return {
+      'Data': x.date,
+      'Hora': x.time,
+      'Destaques': labels.length ? '⚠ '+labels.join(' · ') : '—',
+      'Temp. °C': displayRuleValue('temp_c',x.temp_c),
+      'UR %': displayRuleValue('rh_pct',x.rh_pct),
+      'Chuva mm': displayRuleValue('rain_mm',x.rain_mm),
+      'Prob. %': displayRuleValue('rh_pct',x.rain_prob_pct),
+      'Vento km/h': displayRuleValue('wind_kmh',x.wind_kmh),
+      'Dir.': (num(x.wind_kmh)!==null && Number(x.wind_kmh)<2) ? 'Calmo' : windDirLabel(x.wind_dir_deg).label,
+      'Dir. graus': num(x.wind_dir_deg)===null ? null : Math.round(Number(x.wind_dir_deg)),
+      'Rajada km/h': displayRuleValue('gust_kmh',x.gust_kmh),
+      'UV': displayRuleValue('uv',x.uv)
+    };
+  });
+}
+function autoWidth(ws, rows){
+  if(!rows.length) return;
+  const headers=Object.keys(rows[0]);
+  ws['!cols']=headers.map(h=>({wch:Math.min(28,Math.max(10,h.length+2,...rows.map(r=>String(r[h]??'').length+2)))}));
+  ws['!autofilter']={ref:ws['!ref']};
+}
+function exportExcel(){
+  if(!currentExportData){ showStatus('Faça uma consulta antes de exportar.','err'); return; }
+  if(typeof XLSX==='undefined'){ showStatus('Não foi possível carregar o módulo de Excel. Verifique a internet e tente novamente.','err'); return; }
+  const {label,lat,lon,data,todayIdx}=currentExportData;
+  const past=data.daily.slice(Math.max(0,todayIdx-2),todayIdx);
+  const todayRow=data.daily[todayIdx], tomorrowRow=data.daily[todayIdx+1];
+  const future=data.daily.slice(todayIdx+2,todayIdx+8);
+  const todayHourly=todayRow ? data.hourly.filter(x=>x.date===todayRow.date) : [];
+  const tomorrowHourly=tomorrowRow ? data.hourly.filter(x=>x.date===tomorrowRow.date) : [];
+  const wb=XLSX.utils.book_new();
+  const meta=[
+    ['VortixGeo | Consulta Climática',''],
+    ['Local',label],['Latitude',Number(lat)],['Longitude',Number(lon)],
+    ['Fuso horário',data.timezone||'America/Sao_Paulo'],['Emitido em',issuedAt()+' (horário de Brasília)'],
+    ['Fonte meteorológica','Open-Meteo (camada normalizada; preparada para TWC)']
+  ];
+  const wsMeta=XLSX.utils.aoa_to_sheet(meta); wsMeta['!cols']=[{wch:24},{wch:55}]; XLSX.utils.book_append_sheet(wb,wsMeta,'Consulta');
+  const drows=exportDailyRows([...past,...(todayRow?[todayRow]:[]),...(tomorrowRow?[tomorrowRow]:[]),...future]);
+  const wsD=XLSX.utils.json_to_sheet(drows); autoWidth(wsD,drows); XLSX.utils.book_append_sheet(wb,wsD,'Resumo diário');
+  const hToday=exportHourlyRows(todayHourly); const wsH1=XLSX.utils.json_to_sheet(hToday); autoWidth(wsH1,hToday); XLSX.utils.book_append_sheet(wb,wsH1,'Hoje por hora');
+  const hTomorrow=exportHourlyRows(tomorrowHourly); const wsH2=XLSX.utils.json_to_sheet(hTomorrow); autoWidth(wsH2,hTomorrow); XLSX.utils.book_append_sheet(wb,wsH2,'Amanhã por hora');
+  const filename=`VortixGeo_Clima_${exportSafeName(label)}_${isoDateInZone(new Date())}.xlsx`;
+  XLSX.writeFile(wb,filename,{compression:true});
+}
+
 function render(label,lat,lon,data){
   $('locTitle').textContent=label; $('locSub').innerHTML=`Coordenada usada: <b>${Number(lat).toFixed(6)}, ${Number(lon).toFixed(6)}</b><br>Fuso horário: ${esc(data.timezone||'America/Sao_Paulo')}`; $('location').className='card location show';
   const today=isoDateInZone(new Date()), dates=data.daily.map(x=>x.date);
   let todayIdx=dates.indexOf(today); if(todayIdx<0) todayIdx=2;
+  currentExportData={label,lat,lon,data,todayIdx};
   const past=data.daily.slice(Math.max(0,todayIdx-2),todayIdx);
   const todayRow=data.daily[todayIdx], tomorrowRow=data.daily[todayIdx+1];
   const future=data.daily.slice(todayIdx+2,todayIdx+8);
@@ -343,6 +422,7 @@ function render(label,lat,lon,data){
   let out='';
   out+=`<div class="issued">Previsão emitida em ${esc(issuedAt())} (horário de Brasília)</div>`;
   out+=legendHtml();
+  out+=`<div class="exportbar"><button class="export-btn" type="button" onclick="exportExcel()">Exportar para Excel</button></div>`;
   out+=`<div class="section"><h2>Últimos 2 dias</h2><p>Resumo diário</p></div>`+tableDaily(past,true);
   out+=`<div class="section"><h2>Hoje — por hora</h2><p>${esc(dow(todayRow.date))}</p></div>`;
   if(todayRow){ out+=`<div class="summary"><div class="kpi"><b>${fmt(todayRow.temp_min_c)} °C</b><span>Temperatura mínima</span></div><div class="kpi"><b>${fmt(todayRow.temp_max_c)} °C</b><span>Temperatura máxima</span></div><div class="kpi"><b>${fmt(todayRow.rain_mm)} mm</b><span>Chuva no dia</span></div><div class="kpi"><b>${fmt(todayRow.gust_kmh)} km/h</b><span>Rajada máxima</span></div></div>`; }
