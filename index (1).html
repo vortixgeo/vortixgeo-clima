@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<title>VortixGeo | Consulta Climática</title>
+<meta name="theme-color" content="#0b3a66"/>
+<style>
+:root{
+  --navy:#0b3a66; --blue:#0f6ea8; --cyan:#38a7c8; --bg:#f4f7fa;
+  --card:#ffffff; --text:#17324d; --muted:#6b7f91; --line:#dfe7ee;
+  --green:#187a4d; --orange:#c56a12; --red:#b33a3a;
+  --attention-bg:#FFE58F; --attention-text:#3D2E00;
+  --alert-bg:#FFA940; --alert-text:#3D1A00; --row-highlight:#FFF8E1;
+}
+*{box-sizing:border-box}
+html,body{max-width:100%;overflow-x:hidden}
+body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text)}
+header{
+  background:linear-gradient(135deg,var(--navy),var(--blue));
+  color:#fff;padding:20px 16px 18px;position:sticky;top:0;z-index:5;
+  box-shadow:0 2px 12px rgba(0,0,0,.12)
+}
+.brand{max-width:980px;margin:auto}
+.brand h1{font-size:21px;margin:0 0 4px}
+.brand p{margin:0;opacity:.9;font-size:13px}
+main{max-width:980px;margin:18px auto;padding:0 12px 40px}
+.panel,.card{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 4px 18px rgba(25,55,80,.06)}
+.panel{padding:14px;margin-bottom:14px}
+.searchwrap{position:relative}
+label{font-size:13px;font-weight:700;display:block;margin-bottom:6px}
+.row{display:flex;gap:8px}
+input{width:100%;font-size:17px;padding:13px 14px;border:1px solid #bdcbd7;border-radius:10px;outline:none}
+input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(15,110,168,.12)}
+button{background:var(--navy);color:white;border:0;border-radius:10px;padding:0 18px;font-size:16px;font-weight:700;cursor:pointer}
+button:disabled{opacity:.55;cursor:not-allowed}
+.hint{font-size:12px;color:var(--muted);margin-top:7px}
+.suggest{position:absolute;left:0;right:0;top:78px;background:white;border:1px solid var(--line);border-radius:10px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.14);display:none;z-index:20}
+.suggest div{padding:11px 12px;border-bottom:1px solid #eef3f7;cursor:pointer;font-size:14px}
+.suggest div:last-child{border-bottom:0}.suggest div:hover{background:#f0f6fb}
+.status{display:none;padding:12px;border-radius:10px;margin-top:10px;font-size:14px}
+.status.show{display:block}.status.err{background:#fff0f0;color:#8a2626}.status.ok{background:#edf8f3;color:#145b3b}
+.location{display:none;margin-bottom:14px;padding:14px}.location.show{display:block}
+.loc-title{font-size:18px;font-weight:800;margin-bottom:4px}.loc-sub{font-size:13px;color:var(--muted);line-height:1.5}
+.section{margin:18px 0 10px}.section h2{font-size:18px;margin:0 0 4px}.section p{margin:0;color:var(--muted);font-size:13px}
+.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:10px 0}
+.kpi{background:#fff;border:1px solid var(--line);border-radius:12px;padding:11px}.kpi b{display:block;font-size:18px}.kpi span{font-size:11px;color:var(--muted)}
+.issued{font-size:12px;color:var(--muted);margin:0 0 10px}
+.highlights{padding:13px 14px;margin-bottom:10px;border-left:4px solid var(--orange)}
+.highlights h3{margin:0 0 7px;font-size:15px}.highlights p{margin:4px 0;font-size:13px;line-height:1.45}
+.legend{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:10px 0}
+.legend-item{display:inline-flex;align-items:center;gap:5px}.swatch{width:16px;height:12px;border-radius:3px;border:1px solid rgba(0,0,0,.08)}
+.swatch.attention{background:var(--attention-bg)}.swatch.alert{background:var(--alert-bg)}
+.criteria-link{color:var(--blue);font-weight:700;cursor:pointer;text-decoration:underline;background:none;border:0;padding:0;font-size:12px;width:auto;height:auto;margin:0}
+.criteria{display:none;margin-bottom:12px;padding:12px}.criteria.show{display:block}.criteria table{min-width:620px}
+.tablecard{overflow:hidden}.scroll{overflow-x:auto;max-width:100%;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:separate;border-spacing:0;min-width:980px}
+th,td{padding:10px 9px;border-bottom:1px solid #edf2f6;text-align:right;font-size:13px;white-space:nowrap;background:#fff}
+th{background:#edf5fa;color:#37566f;font-size:12px;position:sticky;top:0;z-index:2}
+th:first-child,td:first-child{text-align:left;position:sticky;left:0;z-index:3}
+th:first-child{background:#edf5fa;z-index:4}td:first-child{background:#fff}
+tr:last-child td{border-bottom:0}.now td{background:#fff8e8}.now td:first-child{background:#fff8e8}
+.rain{font-weight:700;color:var(--blue)}
+.daily-row-highlight td{background:var(--row-highlight)}.daily-row-highlight td:first-child{background:var(--row-highlight)}
+.cell-attention{background:var(--attention-bg)!important;color:var(--attention-text)!important;font-weight:700}
+.cell-alert{background:var(--alert-bg)!important;color:var(--alert-text)!important;font-weight:700}
+.badge-text{font-weight:700;text-align:left}.wind-dir{display:inline-flex;align-items:center;gap:5px}.wind-arrow{display:inline-block;font-size:12px}
+.footer-note{font-size:11px;color:var(--muted);margin-top:12px;line-height:1.5}.loader{display:none;text-align:center;padding:28px;color:var(--muted)}.loader.show{display:block}
+@media(max-width:700px){header{position:static}.row{display:block}button{width:100%;height:46px;margin-top:8px}.criteria-link{width:auto;height:auto;margin:0}.suggest{top:78px}.summary{grid-template-columns:repeat(2,1fr)}main{margin-top:12px}.highlights{padding:12px}th,td{padding:9px 8px;font-size:12px}}
+</style>
+</head>
+<body>
+<header><div class="brand"><h1>VortixGeo | Consulta Climática</h1><p>Consulta rápida por cidade ou coordenada</p></div></header>
+<main>
+  <section class="panel">
+    <label for="q">Digite uma cidade ou coordenada</label>
+    <div class="searchwrap"><div class="row"><input id="q" autocomplete="off" placeholder="Ex.: Cravinhos, SP ou -21.34, -47.73"/><button id="go">Consultar</button></div><div id="suggest" class="suggest"></div></div>
+    <div class="hint">Comece a digitar a cidade e selecione uma sugestão, ou cole latitude e longitude do Google Maps.</div>
+    <div id="status" class="status"></div>
+  </section>
+  <section id="location" class="card location"><div id="locTitle" class="loc-title"></div><div id="locSub" class="loc-sub"></div></section>
+  <div id="loader" class="loader">Carregando dados meteorológicos…</div>
+  <div id="results"></div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let selected = null, debounceTimer = null;
+
+// Regras totalmente independentes do fornecedor de dados.
+const ALERT_RULES = {
+  daily: {
+    rain_mm:      { attention:{op:'>=',value:10}, alert:{op:'>=',value:30}, label:'Chuva' },
+    gust_kmh:     { attention:{op:'>=',value:40}, alert:{op:'>=',value:60}, label:'Vento' },
+    temp_max_c:   { attention:{op:'>=',value:33}, alert:{op:'>=',value:36}, label:'Calor' },
+    temp_min_c:   { attention:{op:'<=',value:5},  alert:{op:'<=',value:2},  label:'Frio' },
+    rh_min_pct:   { attention:{op:'<=',value:30}, alert:{op:'<=',value:20}, label:'Seco' },
+    uv_max:       { attention:{op:'>=',value:8},  alert:{op:'>=',value:11}, label:'UV' }
+  },
+  hourly: {
+    rain_mm:      { attention:{op:'>=',value:5},  alert:{op:'>=',value:15} },
+    gust_kmh:     { attention:{op:'>=',value:40}, alert:{op:'>=',value:60} },
+    temp_high_c:  { attention:{op:'>=',value:33}, alert:{op:'>=',value:36} },
+    temp_low_c:   { attention:{op:'<=',value:5},  alert:{op:'<=',value:2} },
+    rh_pct:       { attention:{op:'<=',value:30}, alert:{op:'<=',value:20} },
+    uv:           { attention:{op:'>=',value:8},  alert:{op:'>=',value:11} }
+  }
+};
+
+function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
+function num(v){ return v===null||v===undefined||v==='' ? null : (Number.isFinite(Number(v)) ? Number(v) : null); }
+function fmt(n,d=1){ return num(n)!==null ? Number(n).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d}) : '—'; }
+function dow(dateStr){ return new Date(dateStr+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'2-digit'}); }
+function showStatus(msg,type='ok'){ const el=$('status'); el.textContent=msg; el.className='status show '+type; }
+function hideStatus(){ $('status').className='status'; }
+function parseCoords(s){ const m=s.trim().match(/^(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)$/); if(!m) return null; const lat=+m[1], lon=+m[2]; if(lat<-90||lat>90||lon<-180||lon>180) return null; return {lat,lon}; }
+
+function compare(v,rule){ if(num(v)===null) return false; return rule.op==='>=' ? Number(v)>=rule.value : Number(v)<=rule.value; }
+function levelFor(v,rule){ if(!rule||num(v)===null)return null; if(compare(v,rule.alert))return 'alert'; if(compare(v,rule.attention))return 'attention'; return null; }
+function cellClass(level){ return level==='alert'?'cell-alert':level==='attention'?'cell-attention':''; }
+function intOrDash(v){ return num(v)===null ? '—' : Math.round(Number(v)).toLocaleString('pt-BR'); }
+function isoDateInZone(date, tz='America/Sao_Paulo'){ return new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).format(date); }
+function issuedAt(){ return new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date()); }
+
+async function citySearch(q){ const url='https://geocoding-api.open-meteo.com/v1/search?name='+encodeURIComponent(q)+'&count=7&language=pt&format=json'; const r=await fetch(url); if(!r.ok) throw new Error('Falha na busca de cidades'); const j=await r.json(); return j.results||[]; }
+function placeLabel(x){ return [x.name,x.admin1,x.country_code].filter(Boolean).join(', '); }
+function renderSuggestions(items){ const box=$('suggest'); box.innerHTML=''; if(!items.length){ box.style.display='none'; return; } items.forEach(x=>{ const d=document.createElement('div'); d.textContent=placeLabel(x); d.onclick=()=>{ selected={lat:x.latitude,lon:x.longitude,label:placeLabel(x)}; $('q').value=selected.label; box.style.display='none'; run(selected); }; box.appendChild(d); }); box.style.display='block'; }
+$('q').addEventListener('input',()=>{ selected=null; hideStatus(); clearTimeout(debounceTimer); const v=$('q').value.trim(); if(parseCoords(v)||v.length<3){$('suggest').style.display='none'; return;} debounceTimer=setTimeout(async()=>{ try{ renderSuggestions(await citySearch(v)); }catch(e){ $('suggest').style.display='none'; } },300); });
+document.addEventListener('click',e=>{ if(!e.target.closest('.searchwrap')) $('suggest').style.display='none'; });
+$('q').addEventListener('keydown',e=>{ if(e.key==='Enter') submit(); }); $('go').onclick=submit;
+async function submit(){ hideStatus(); const v=$('q').value.trim(); if(!v){showStatus('Digite uma cidade ou coordenada.','err');return;} const c=parseCoords(v); if(c) return run({lat:c.lat,lon:c.lon,label:'Local por coordenada',reverse:true}); if(selected) return run(selected); try{ const rs=await citySearch(v); if(!rs.length){showStatus('Cidade não encontrada. Digite parte do nome e escolha uma sugestão.','err');return;} const x=rs[0]; selected={lat:x.latitude,lon:x.longitude,label:placeLabel(x)}; $('q').value=selected.label; run(selected); }catch(e){showStatus('Não foi possível buscar a cidade agora.','err');} }
+async function reverseLabel(lat,lon){ try{ const url=`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}&zoom=10&accept-language=pt-BR`; const r=await fetch(url,{headers:{'Accept':'application/json'}}); if(!r.ok) return null; const j=await r.json(); const a=j.address||{}; const city=a.city||a.town||a.village||a.municipality||a.county; const state=a.state; return [city,state].filter(Boolean).join(', ') || j.display_name || null; }catch(e){return null;} }
+
+// Camada do fornecedor: hoje Open-Meteo; depois pode ser substituída pela TWC.
+async function fetchWeatherProvider(loc){
+  const params = new URLSearchParams({
+    latitude:loc.lat, longitude:loc.lon, timezone:'America/Sao_Paulo', past_days:'2', forecast_days:'8',
+    hourly:'temperature_2m,relative_humidity_2m,precipitation,precipitation_probability,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index',
+    daily:'temperature_2m_max,temperature_2m_min,relative_humidity_2m_min,relative_humidity_2m_max,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_direction_10m_dominant,wind_gusts_10m_max,uv_index_max',
+    wind_speed_unit:'kmh'
+  });
+  const r=await fetch('https://api.open-meteo.com/v1/forecast?'+params.toString());
+  if(!r.ok) throw new Error('Falha ao consultar dados meteorológicos.');
+  return r.json();
+}
+
+// Normalização: todo o restante da interface usa apenas este formato canônico.
+function normalizeOpenMeteo(j){
+  const h=j.hourly||{}, d=j.daily||{};
+  const hourly=(h.time||[]).map((t,i)=>({
+    datetime:t, date:t.slice(0,10), time:t.slice(11,16),
+    temp_c:num(h.temperature_2m?.[i]), rh_pct:num(h.relative_humidity_2m?.[i]), rain_mm:num(h.precipitation?.[i]),
+    rain_prob_pct:num(h.precipitation_probability?.[i]), wind_kmh:num(h.wind_speed_10m?.[i]), wind_dir_deg:num(h.wind_direction_10m?.[i]),
+    gust_kmh:num(h.wind_gusts_10m?.[i]), uv:num(h.uv_index?.[i])
+  }));
+  const byDate=hourly.reduce((acc,x)=>(acc[x.date]??=[]).push(x),acc);
+  const daily=(d.time||[]).map((date,i)=>{
+    const hs=byDate[date]||[];
+    const rhVals=hs.map(x=>x.rh_pct).filter(v=>v!==null);
+    const uvVals=hs.map(x=>x.uv).filter(v=>v!==null);
+    return {
+      date,
+      temp_min_c:num(d.temperature_2m_min?.[i]), temp_max_c:num(d.temperature_2m_max?.[i]),
+      rh_min_pct:num(d.relative_humidity_2m_min?.[i]) ?? (rhVals.length?Math.min(...rhVals):null),
+      rh_max_pct:num(d.relative_humidity_2m_max?.[i]) ?? (rhVals.length?Math.max(...rhVals):null),
+      rain_mm:num(d.precipitation_sum?.[i]), rain_prob_pct:num(d.precipitation_probability_max?.[i]),
+      wind_max_kmh:num(d.wind_speed_10m_max?.[i]), wind_dir_deg:num(d.wind_direction_10m_dominant?.[i]),
+      gust_kmh:num(d.wind_gusts_10m_max?.[i]), uv_max:num(d.uv_index_max?.[i]) ?? (uvVals.length?Math.max(...uvVals):null)
+    };
+  });
+  return { timezone:j.timezone||'America/Sao_Paulo', hourly, daily };
+}
+
+async function run(loc){
+  $('suggest').style.display='none'; $('results').innerHTML=''; $('location').className='card location'; $('loader').className='loader show'; $('go').disabled=true; hideStatus();
+  try{
+    let label=loc.label; if(loc.reverse){ const rev=await reverseLabel(loc.lat,loc.lon); if(rev) label=rev; }
+    const raw=await fetchWeatherProvider(loc); const data=normalizeOpenMeteo(raw); render(label,loc.lat,loc.lon,data);
+  }catch(e){ showStatus(e.message||'Não foi possível realizar a consulta.','err'); }
+  finally{ $('loader').className='loader'; $('go').disabled=false; }
+}
+
+function windDirLabel(deg){
+  if(num(deg)===null) return {label:'—',arrow:'',title:''};
+  const dirs=['N','NE','L','SE','S','SO','O','NO'];
+  const normalized=((Number(deg)%360)+360)%360;
+  const idx=Math.round(normalized/45)%8;
+  const arrowDeg=(normalized+180)%360;
+  return {label:dirs[idx],arrow:'↑',style:`transform:rotate(${arrowDeg}deg)`,title:`${Math.round(normalized)}°`};
+}
+function windDirHtml(deg,windKmh){ if(num(windKmh)!==null && Number(windKmh)<2) return '<span title="Vento abaixo de 2 km/h">Calmo</span>'; const x=windDirLabel(deg); return `<span class="wind-dir" title="${esc(x.title)}"><span>${x.label}</span>${x.arrow?`<span class="wind-arrow" style="${x.style}">${x.arrow}</span>`:''}</span>`; }
+
+function dailyAlerts(x){
+  const found=[]; const r=ALERT_RULES.daily;
+  for(const [field,rule] of Object.entries(r)){ const level=levelFor(x[field],rule); if(level) found.push({field,label:rule.label,level,value:x[field]}); }
+  return found;
+}
+function hourlyLevels(x){
+  const r=ALERT_RULES.hourly;
+  return {
+    temp_c: levelFor(x.temp_c,r.temp_high_c)||levelFor(x.temp_c,r.temp_low_c),
+    rh_pct: levelFor(x.rh_pct,r.rh_pct), rain_mm: levelFor(x.rain_mm,r.rain_mm), gust_kmh: levelFor(x.gust_kmh,r.gust_kmh), uv: levelFor(x.uv,r.uv)
+  };
+}
+function alertCell(content,level,extra=''){ return `<td class="${extra} ${cellClass(level)}">${content}</td>`; }
+
+function criteriaTable(){
+  return `<div id="criteria" class="card criteria"><div class="scroll"><table style="min-width:720px"><thead><tr><th>Variável</th><th>Diário — Atenção</th><th>Diário — Alerta</th><th>Hora — Atenção</th><th>Hora — Alerta</th></tr></thead><tbody>
+    <tr><td>Chuva</td><td>≥ 10 mm/dia</td><td>≥ 30 mm/dia</td><td>≥ 5 mm/h</td><td>≥ 15 mm/h</td></tr>
+    <tr><td>Rajada</td><td>≥ 40 km/h</td><td>≥ 60 km/h</td><td>≥ 40 km/h</td><td>≥ 60 km/h</td></tr>
+    <tr><td>Calor</td><td>Máx. ≥ 33 °C</td><td>Máx. ≥ 36 °C</td><td>Temp. ≥ 33 °C</td><td>Temp. ≥ 36 °C</td></tr>
+    <tr><td>Frio</td><td>Mín. ≤ 5 °C</td><td>Mín. ≤ 2 °C</td><td>Temp. ≤ 5 °C</td><td>Temp. ≤ 2 °C</td></tr>
+    <tr><td>Seco</td><td>UR mín. ≤ 30%</td><td>UR mín. ≤ 20%</td><td>UR ≤ 30%</td><td>UR ≤ 20%</td></tr>
+    <tr><td>UV</td><td>≥ 8</td><td>≥ 11</td><td>≥ 8</td><td>≥ 11</td></tr>
+  </tbody></table></div></div>`;
+}
+function legendHtml(){ return `<div class="legend"><span class="legend-item"><span class="swatch attention"></span>Atenção</span><span class="legend-item"><span class="swatch alert"></span>Alerta</span><button class="criteria-link" type="button" onclick="document.getElementById('criteria').classList.toggle('show')">ver critérios</button></div>${criteriaTable()}`; }
+
+function tableDaily(rows, isPast=false){
+  return `<div class="card tablecard"><div class="scroll"><table><thead><tr><th>Data</th><th>Mín.</th><th>Máx.</th><th>UR mín.</th><th>UR máx.</th><th>Chuva</th><th>Prob.</th><th>Vento máx.</th><th>Dir. predominante</th><th>Rajada máx.</th><th>UV máx.</th><th>Destaques</th></tr></thead><tbody>${rows.map(x=>{
+    const a=dailyAlerts(x), map=Object.fromEntries(a.map(y=>[y.field,y.level]));
+    const labels=[...new Set(a.map(y=>y.label))];
+    const uvContent=(isPast && x.uv_max===null)?'—':intOrDash(x.uv_max);
+    return `<tr class="${a.length?'daily-row-highlight':''}">
+      <td>${esc(dow(x.date))}</td>
+      ${alertCell(`${fmt(x.temp_min_c)} °C`,map.temp_min_c)}
+      ${alertCell(`${fmt(x.temp_max_c)} °C`,map.temp_max_c)}
+      ${alertCell(`${intOrDash(x.rh_min_pct)}%`,map.rh_min_pct)}
+      <td>${intOrDash(x.rh_max_pct)}%</td>
+      ${alertCell(`${fmt(x.rain_mm)} mm`,map.rain_mm,'rain')}
+      <td>${fmt(x.rain_prob_pct,0)}%</td>
+      <td>${fmt(x.wind_max_kmh)} km/h</td>
+      <td>${windDirHtml(x.wind_dir_deg,x.wind_max_kmh)}</td>
+      ${alertCell(`${fmt(x.gust_kmh)} km/h`,map.gust_kmh)}
+      ${alertCell(uvContent,map.uv_max)}
+      <td class="badge-text">${labels.length?'⚠ '+esc(labels.join(' · ')):'—'}</td>
+    </tr>`;
+  }).join('')}</tbody></table></div></div>`;
+}
+function tableHourly(rows,date){
+  const now=new Date(), todayLocal=isoDateInZone(now), isToday=todayLocal===date;
+  return `<div class="card tablecard"><div class="scroll"><table><thead><tr><th>Hora</th><th>Temp.</th><th>UR</th><th>Chuva</th><th>Prob.</th><th>Vento</th><th>Dir.</th><th>Rajada</th><th>UV</th></tr></thead><tbody>${rows.map(x=>{
+    const lv=hourlyLevels(x); const current=isToday && Number(x.time.slice(0,2))===Number(new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',hour:'2-digit',hour12:false}).format(now));
+    return `<tr class="${current?'now':''}"><td>${esc(x.time)}</td>${alertCell(`${fmt(x.temp_c)} °C`,lv.temp_c)}${alertCell(`${intOrDash(x.rh_pct)}%`,lv.rh_pct)}${alertCell(`${fmt(x.rain_mm)} mm`,lv.rain_mm,'rain')}<td>${fmt(x.rain_prob_pct,0)}%</td><td>${fmt(x.wind_kmh)} km/h</td><td>${windDirHtml(x.wind_dir_deg,x.wind_kmh)}</td>${alertCell(`${fmt(x.gust_kmh)} km/h`,lv.gust_kmh)}${alertCell(intOrDash(x.uv),lv.uv)}</tr>`;
+  }).join('')}</tbody></table></div></div>`;
+}
+
+function topHighlights(rows,today){
+  const selected=rows.filter(x=>x.date>=today).map(x=>({x,a:dailyAlerts(x)})).filter(y=>y.a.length).slice(0,7);
+  if(!selected.length) return `<div class="card highlights"><h3>Destaques</h3><p>Nenhum evento extremo previsto nos próximos 7 dias.</p></div>`;
+  const phrases=selected.map(({x,a})=>{
+    const details=a.map(y=>{
+      const lvl=y.level==='alert'?'alerta':'atenção';
+      if(y.field==='gust_kmh') return `rajadas de até ${fmt(x.gust_kmh,0)} km/h (${lvl})`;
+      if(y.field==='temp_max_c') return `máxima de ${fmt(x.temp_max_c,0)} °C (${lvl})`;
+      if(y.field==='temp_min_c') return `mínima de ${fmt(x.temp_min_c,0)} °C (${lvl})`;
+      if(y.field==='rain_mm') return `chuva de ~${fmt(x.rain_mm,0)} mm (${lvl})`;
+      if(y.field==='rh_min_pct') return `umidade mínima de ${fmt(x.rh_min_pct,0)}% (${lvl})`;
+      if(y.field==='uv_max') return `UV máximo ${fmt(x.uv_max,0)} (${lvl})`;
+      return `${y.label} (${lvl})`;
+    });
+    return `<p><b>${esc(dow(x.date))}</b> — ${esc(details.join(' e '))}</p>`;
+  }).join('');
+  return `<div class="card highlights"><h3>Destaques</h3>${phrases}</div>`;
+}
+
+function render(label,lat,lon,data){
+  $('locTitle').textContent=label; $('locSub').innerHTML=`Coordenada usada: <b>${Number(lat).toFixed(6)}, ${Number(lon).toFixed(6)}</b><br>Fuso horário: ${esc(data.timezone||'America/Sao_Paulo')}`; $('location').className='card location show';
+  const today=isoDateInZone(new Date()), dates=data.daily.map(x=>x.date);
+  let todayIdx=dates.indexOf(today); if(todayIdx<0) todayIdx=2;
+  const past=data.daily.slice(Math.max(0,todayIdx-2),todayIdx);
+  const todayRow=data.daily[todayIdx], tomorrowRow=data.daily[todayIdx+1];
+  const future=data.daily.slice(todayIdx+2,todayIdx+8);
+  const todayHourly=data.hourly.filter(x=>x.date===todayRow?.date), tomorrowHourly=data.hourly.filter(x=>x.date===tomorrowRow?.date);
+  let out='';
+  out+=`<div class="issued">Previsão emitida em ${esc(issuedAt())} (horário de Brasília)</div>`;
+  out+=topHighlights(data.daily.slice(todayIdx,todayIdx+8),todayRow.date);
+  out+=legendHtml();
+  out+=`<div class="section"><h2>Últimos 2 dias</h2><p>Resumo diário</p></div>`+tableDaily(past,true);
+  out+=`<div class="section"><h2>Hoje — por hora</h2><p>${esc(dow(todayRow.date))}</p></div>`;
+  if(todayRow){ out+=`<div class="summary"><div class="kpi"><b>${fmt(todayRow.temp_min_c)} °C</b><span>Temperatura mínima</span></div><div class="kpi"><b>${fmt(todayRow.temp_max_c)} °C</b><span>Temperatura máxima</span></div><div class="kpi"><b>${fmt(todayRow.rain_mm)} mm</b><span>Chuva no dia</span></div><div class="kpi"><b>${fmt(todayRow.gust_kmh)} km/h</b><span>Rajada máxima</span></div></div>`; }
+  out+=tableHourly(todayHourly,todayRow.date);
+  out+=`<div class="section"><h2>Amanhã — por hora</h2><p>${esc(dow(tomorrowRow.date))}</p></div>`+tableHourly(tomorrowHourly,tomorrowRow.date);
+  out+=`<div class="section"><h2>Próximos dias</h2><p>Resumo diário</p></div>`+tableDaily(future,false);
+  out+=`<div class="footer-note">Versão piloto para teste de usabilidade em campo. Fonte meteorológica desta versão: Open‑Meteo. A interface usa uma camada normalizada independente do fornecedor para posterior conexão à The Weather Company (TWC) sem alterar regras, destaques ou apresentação.</div>`;
+  $('results').innerHTML=out;
+}
+</script>
+</body>
+</html>
