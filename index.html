@@ -53,6 +53,10 @@ button:disabled{opacity:.55;cursor:not-allowed}
 .criteria{display:none;margin-bottom:12px;padding:12px}.criteria.show{display:block}.criteria table{min-width:620px}
 .tablecard{overflow:hidden}.scroll{overflow-x:auto;max-width:100%;-webkit-overflow-scrolling:touch}
 table{width:100%;border-collapse:separate;border-spacing:0;min-width:980px}
+.daily-table{min-width:0;width:100%;table-layout:auto}
+.daily-table th,.daily-table td{padding:9px 5px;font-size:12px}
+.daily-table th{font-size:11px}
+.daily-table .badge-text{white-space:normal;line-height:1.2}
 th,td{padding:10px 9px;border-bottom:1px solid #edf2f6;text-align:right;font-size:13px;white-space:nowrap;background:#fff}
 th{background:#edf5fa;color:#37566f;font-size:12px;position:sticky;top:0;z-index:2}
 th:first-child,td:first-child{text-align:left;position:sticky;left:0;z-index:3}
@@ -61,8 +65,8 @@ th:first-child,th:nth-child(2){background:#edf5fa;z-index:4}
 td:first-child,td:nth-child(2){background:#fff}
 .hourly-table th:first-child,.hourly-table td:first-child{min-width:82px;width:82px}
 .hourly-table th:nth-child(2),.hourly-table td:nth-child(2){min-width:132px;width:132px}
-.daily-table th:first-child,.daily-table td:first-child{min-width:82px;width:82px}
-.daily-table th:nth-child(2),.daily-table td:nth-child(2){min-width:150px;width:150px}
+.daily-table th:first-child,.daily-table td:first-child{min-width:76px;width:76px}
+.daily-table th:nth-child(2),.daily-table td:nth-child(2){min-width:142px;width:142px}
 tr:last-child td{border-bottom:0}
 .hourly-row-highlight td,.daily-row-highlight td{background:var(--row-highlight)}
 .hourly-row-highlight td:first-child,.hourly-row-highlight td:nth-child(2),.daily-row-highlight td:first-child,.daily-row-highlight td:nth-child(2){background:var(--row-highlight)}
@@ -76,6 +80,7 @@ tr:last-child td{border-bottom:0}
 .footer-note{font-size:11px;color:var(--muted);margin-top:12px;line-height:1.5}
 .exportbar{display:flex;justify-content:flex-end;margin:10px 0 14px}.export-btn{height:42px;padding:0 16px;background:var(--green);display:inline-flex;align-items:center;gap:8px}.export-btn:hover{filter:brightness(.96)}
 @media(max-width:700px){.exportbar{justify-content:stretch}.export-btn{width:100%;justify-content:center;margin-top:0}.location-actions{justify-content:stretch!important}.location-actions .export-btn{width:100%;justify-content:center}}.loader{display:none;text-align:center;padding:28px;color:var(--muted)}.loader.show{display:block}
+@media(max-width:700px){.daily-table{min-width:920px}.daily-table th,.daily-table td{padding:9px 7px;font-size:12px}.daily-table .badge-text{white-space:nowrap}}
 @media(max-width:700px){header{position:static}.row{display:block}button{width:100%;height:46px;margin-top:8px}.criteria-link{width:auto;height:auto;margin:0}.suggest{top:78px;height:min(360px,calc(100vh - 330px));min-height:260px;max-height:360px}.summary{grid-template-columns:repeat(2,1fr)}main{margin-top:12px}th,td{padding:9px 8px;font-size:12px}}
 </style>
 </head>
@@ -469,7 +474,7 @@ function rainCell(v,level){
   return alertCell(fmt(v),level,cls);
 }
 function tableDaily(rows, isPast=false){
-  return `<div class="card tablecard"><div class="scroll"><table class="daily-table"><thead><tr><th>Data</th><th>Destaques</th><th>Mín. °C</th><th>Máx. °C</th><th>UR mín. %</th><th>UR máx. %</th><th>Chuva mm</th><th>Prob. %</th><th>Vento máx. km/h</th><th>Dir. predominante</th><th>Rajada máx. km/h</th><th>UV máx.</th></tr></thead><tbody>${rows.map(x=>{
+  return `<div class="card tablecard"><div class="scroll"><table class="daily-table"><thead><tr><th>Data</th><th>Destaques</th><th>Mín. °C</th><th>Máx. °C</th><th>UR mín. %</th><th>UR máx. %</th><th>Chuva mm</th><th>Prob. %</th><th title="Vento máximo (km/h)">Vento máx.</th><th title="Direção predominante">Dir.</th><th title="Rajada máxima (km/h)">Rajada máx.</th><th>UV máx.</th></tr></thead><tbody>${rows.map(x=>{
     const a=dailyAlerts(x), map=Object.fromEntries(a.map(y=>[y.field,y.level]));
     const labels=[...new Set(a.map(y=>y.label))];
     const uvContent=(isPast && x.uv_max===null)?'—':intOrDash(x.uv_max);
