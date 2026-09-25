@@ -46,8 +46,6 @@ button:disabled{opacity:.55;cursor:not-allowed}
 .summary{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:10px 0}
 .kpi{background:#fff;border:1px solid var(--line);border-radius:12px;padding:11px}.kpi b{display:block;font-size:18px}.kpi span{font-size:11px;color:var(--muted)}
 .issued{font-size:12px;color:var(--muted);margin:0 0 10px}
-.highlights{padding:13px 14px;margin-bottom:10px;border-left:4px solid var(--orange)}
-.highlights h3{margin:0 0 7px;font-size:15px}.highlights p{margin:4px 0;font-size:13px;line-height:1.45}
 .legend{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:10px 0}
 .legend-item{display:inline-flex;align-items:center;gap:5px}.swatch{width:16px;height:12px;border-radius:3px;border:1px solid rgba(0,0,0,.08)}
 .swatch.attention{background:var(--attention-bg)}.swatch.alert{background:var(--alert-bg)}
@@ -58,15 +56,25 @@ table{width:100%;border-collapse:separate;border-spacing:0;min-width:980px}
 th,td{padding:10px 9px;border-bottom:1px solid #edf2f6;text-align:right;font-size:13px;white-space:nowrap;background:#fff}
 th{background:#edf5fa;color:#37566f;font-size:12px;position:sticky;top:0;z-index:2}
 th:first-child,td:first-child{text-align:left;position:sticky;left:0;z-index:3}
-th:first-child{background:#edf5fa;z-index:4}td:first-child{background:#fff}
-tr:last-child td{border-bottom:0}.now td{background:#fff8e8}.now td:first-child{background:#fff8e8}
-.rain{font-weight:700;color:var(--blue)}
-.daily-row-highlight td{background:var(--row-highlight)}.daily-row-highlight td:first-child{background:var(--row-highlight)}
+th:nth-child(2),td:nth-child(2){text-align:left;position:sticky;left:82px;z-index:3}
+th:first-child,th:nth-child(2){background:#edf5fa;z-index:4}
+td:first-child,td:nth-child(2){background:#fff}
+.hourly-table th:first-child,.hourly-table td:first-child{min-width:82px;width:82px}
+.hourly-table th:nth-child(2),.hourly-table td:nth-child(2){min-width:132px;width:132px}
+.daily-table th:first-child,.daily-table td:first-child{min-width:82px;width:82px}
+.daily-table th:nth-child(2),.daily-table td:nth-child(2){min-width:150px;width:150px}
+tr:last-child td{border-bottom:0}
+.hourly-row-highlight td,.daily-row-highlight td{background:var(--row-highlight)}
+.hourly-row-highlight td:first-child,.hourly-row-highlight td:nth-child(2),.daily-row-highlight td:first-child,.daily-row-highlight td:nth-child(2){background:var(--row-highlight)}
+.now td{background:#fff!important}.now td:first-child{border-left:3px solid var(--navy)!important;background:#fff!important}.now td:nth-child(2){background:#fff!important}
+.now .cell-attention,.now .cell-alert{background:#fff!important;color:inherit!important;font-weight:inherit}
+.now-tag{font-size:10px;color:var(--navy);font-weight:700;margin-left:5px;text-transform:lowercase}
+.rain-positive{font-weight:700;color:var(--blue)}.rain-zero{font-weight:400;color:#9AA5B1}
 .cell-attention{background:var(--attention-bg)!important;color:var(--attention-text)!important;font-weight:700}
 .cell-alert{background:var(--alert-bg)!important;color:var(--alert-text)!important;font-weight:700}
 .badge-text{font-weight:700;text-align:left}.wind-dir{display:inline-flex;align-items:center;gap:5px}.wind-arrow{display:inline-block;font-size:12px}
 .footer-note{font-size:11px;color:var(--muted);margin-top:12px;line-height:1.5}.loader{display:none;text-align:center;padding:28px;color:var(--muted)}.loader.show{display:block}
-@media(max-width:700px){header{position:static}.row{display:block}button{width:100%;height:46px;margin-top:8px}.criteria-link{width:auto;height:auto;margin:0}.suggest{top:78px}.summary{grid-template-columns:repeat(2,1fr)}main{margin-top:12px}.highlights{padding:12px}th,td{padding:9px 8px;font-size:12px}}
+@media(max-width:700px){header{position:static}.row{display:block}button{width:100%;height:46px;margin-top:8px}.criteria-link{width:auto;height:auto;margin:0}.suggest{top:78px}.summary{grid-template-columns:repeat(2,1fr)}main{margin-top:12px}th,td{padding:9px 8px;font-size:12px}}
 </style>
 </head>
 <body>
@@ -94,15 +102,15 @@ const ALERT_RULES = {
     temp_max_c:   { attention:{op:'>=',value:33}, alert:{op:'>=',value:36}, label:'Calor' },
     temp_min_c:   { attention:{op:'<=',value:5},  alert:{op:'<=',value:2},  label:'Frio' },
     rh_min_pct:   { attention:{op:'<=',value:30}, alert:{op:'<=',value:20}, label:'Seco' },
-    uv_max:       { attention:{op:'>=',value:8},  alert:{op:'>=',value:11}, label:'UV' }
+    uv_max:       { alert:{op:'>=',value:11}, label:'UV' }
   },
   hourly: {
-    rain_mm:      { attention:{op:'>=',value:5},  alert:{op:'>=',value:15} },
-    gust_kmh:     { attention:{op:'>=',value:40}, alert:{op:'>=',value:60} },
-    temp_high_c:  { attention:{op:'>=',value:33}, alert:{op:'>=',value:36} },
-    temp_low_c:   { attention:{op:'<=',value:5},  alert:{op:'<=',value:2} },
-    rh_pct:       { attention:{op:'<=',value:30}, alert:{op:'<=',value:20} },
-    uv:           { attention:{op:'>=',value:8},  alert:{op:'>=',value:11} }
+    rain_mm:      { attention:{op:'>=',value:5},  alert:{op:'>=',value:15}, label:'Chuva' },
+    gust_kmh:     { attention:{op:'>=',value:40}, alert:{op:'>=',value:60}, label:'Vento' },
+    temp_high_c:  { attention:{op:'>=',value:33}, alert:{op:'>=',value:36}, label:'Calor' },
+    temp_low_c:   { attention:{op:'<=',value:5},  alert:{op:'<=',value:2},  label:'Frio' },
+    rh_pct:       { attention:{op:'<=',value:30}, alert:{op:'<=',value:20}, label:'Seco' },
+    uv:           { alert:{op:'>=',value:11}, label:'UV' }
   }
 };
 
@@ -114,8 +122,13 @@ function showStatus(msg,type='ok'){ const el=$('status'); el.textContent=msg; el
 function hideStatus(){ $('status').className='status'; }
 function parseCoords(s){ const m=s.trim().match(/^(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)$/); if(!m) return null; const lat=+m[1], lon=+m[2]; if(lat<-90||lat>90||lon<-180||lon>180) return null; return {lat,lon}; }
 
-function compare(v,rule){ if(num(v)===null) return false; return rule.op==='>=' ? Number(v)>=rule.value : Number(v)<=rule.value; }
-function levelFor(v,rule){ if(!rule||num(v)===null)return null; if(compare(v,rule.alert))return 'alert'; if(compare(v,rule.attention))return 'attention'; return null; }
+function roundForDisplay(v,digits){ if(num(v)===null)return null; const f=10**digits; return Math.round(Number(v)*f)/f; }
+function displayRuleValue(field,v){
+  if(field==='uv'||field==='uv_max'||field==='rh_pct'||field==='rh_min_pct') return roundForDisplay(v,0);
+  return roundForDisplay(v,1);
+}
+function compare(v,rule){ if(num(v)===null||!rule) return false; return rule.op==='>=' ? Number(v)>=rule.value : Number(v)<=rule.value; }
+function levelFor(v,rule){ if(!rule||num(v)===null)return null; if(rule.alert&&compare(v,rule.alert))return 'alert'; if(rule.attention&&compare(v,rule.attention))return 'attention'; return null; }
 function cellClass(level){ return level==='alert'?'cell-alert':level==='attention'?'cell-attention':''; }
 function intOrDash(v){ return num(v)===null ? '—' : Math.round(Number(v)).toLocaleString('pt-BR'); }
 function isoDateInZone(date, tz='America/Sao_Paulo'){ return new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).format(date); }
@@ -195,15 +208,31 @@ function windDirHtml(deg,windKmh){ if(num(windKmh)!==null && Number(windKmh)<2) 
 
 function dailyAlerts(x){
   const found=[]; const r=ALERT_RULES.daily;
-  for(const [field,rule] of Object.entries(r)){ const level=levelFor(x[field],rule); if(level) found.push({field,label:rule.label,level,value:x[field]}); }
+  for(const [field,rule] of Object.entries(r)){ const value=displayRuleValue(field,x[field]); const level=levelFor(value,rule); if(level) found.push({field,label:rule.label,level,value}); }
   return found;
 }
 function hourlyLevels(x){
   const r=ALERT_RULES.hourly;
+  const temp=displayRuleValue('temp_c',x.temp_c);
   return {
-    temp_c: levelFor(x.temp_c,r.temp_high_c)||levelFor(x.temp_c,r.temp_low_c),
-    rh_pct: levelFor(x.rh_pct,r.rh_pct), rain_mm: levelFor(x.rain_mm,r.rain_mm), gust_kmh: levelFor(x.gust_kmh,r.gust_kmh), uv: levelFor(x.uv,r.uv)
+    temp_c: levelFor(temp,r.temp_high_c)||levelFor(temp,r.temp_low_c),
+    rh_pct: levelFor(displayRuleValue('rh_pct',x.rh_pct),r.rh_pct),
+    rain_mm: levelFor(displayRuleValue('rain_mm',x.rain_mm),r.rain_mm),
+    gust_kmh: levelFor(displayRuleValue('gust_kmh',x.gust_kmh),r.gust_kmh),
+    uv: levelFor(displayRuleValue('uv',x.uv),r.uv)
   };
+}
+function hourlyAlertLabels(x,lv){
+  const r=ALERT_RULES.hourly, labels=[];
+  if(lv.rain_mm) labels.push(r.rain_mm.label);
+  if(lv.gust_kmh) labels.push(r.gust_kmh.label);
+  if(lv.temp_c){
+    const t=displayRuleValue('temp_c',x.temp_c);
+    labels.push(levelFor(t,r.temp_high_c)?r.temp_high_c.label:r.temp_low_c.label);
+  }
+  if(lv.rh_pct) labels.push(r.rh_pct.label);
+  if(lv.uv) labels.push(r.uv.label);
+  return [...new Set(labels)];
 }
 function alertCell(content,level,extra=''){ return `<td class="${extra} ${cellClass(level)}">${content}</td>`; }
 
@@ -214,57 +243,47 @@ function criteriaTable(){
     <tr><td>Calor</td><td>Máx. ≥ 33 °C</td><td>Máx. ≥ 36 °C</td><td>Temp. ≥ 33 °C</td><td>Temp. ≥ 36 °C</td></tr>
     <tr><td>Frio</td><td>Mín. ≤ 5 °C</td><td>Mín. ≤ 2 °C</td><td>Temp. ≤ 5 °C</td><td>Temp. ≤ 2 °C</td></tr>
     <tr><td>Seco</td><td>UR mín. ≤ 30%</td><td>UR mín. ≤ 20%</td><td>UR ≤ 30%</td><td>UR ≤ 20%</td></tr>
-    <tr><td>UV</td><td>≥ 8</td><td>≥ 11</td><td>≥ 8</td><td>≥ 11</td></tr>
+    <tr><td>UV</td><td>—</td><td>≥ 11</td><td>—</td><td>≥ 11</td></tr>
   </tbody></table></div></div>`;
 }
 function legendHtml(){ return `<div class="legend"><span class="legend-item"><span class="swatch attention"></span>Atenção</span><span class="legend-item"><span class="swatch alert"></span>Alerta</span><button class="criteria-link" type="button" onclick="document.getElementById('criteria').classList.toggle('show')">ver critérios</button></div>${criteriaTable()}`; }
 
+function rainCell(v,level){
+  const rounded=displayRuleValue('rain_mm',v);
+  const cls=(rounded!==null&&rounded>0)?'rain-positive':'rain-zero';
+  return alertCell(fmt(v),level,cls);
+}
 function tableDaily(rows, isPast=false){
-  return `<div class="card tablecard"><div class="scroll"><table><thead><tr><th>Data</th><th>Mín.</th><th>Máx.</th><th>UR mín.</th><th>UR máx.</th><th>Chuva</th><th>Prob.</th><th>Vento máx.</th><th>Dir. predominante</th><th>Rajada máx.</th><th>UV máx.</th><th>Destaques</th></tr></thead><tbody>${rows.map(x=>{
+  return `<div class="card tablecard"><div class="scroll"><table class="daily-table"><thead><tr><th>Data</th><th>Destaques</th><th>Mín. °C</th><th>Máx. °C</th><th>UR mín. %</th><th>UR máx. %</th><th>Chuva mm</th><th>Prob. %</th><th>Vento máx. km/h</th><th>Dir. predominante</th><th>Rajada máx. km/h</th><th>UV máx.</th></tr></thead><tbody>${rows.map(x=>{
     const a=dailyAlerts(x), map=Object.fromEntries(a.map(y=>[y.field,y.level]));
     const labels=[...new Set(a.map(y=>y.label))];
     const uvContent=(isPast && x.uv_max===null)?'—':intOrDash(x.uv_max);
     return `<tr class="${a.length?'daily-row-highlight':''}">
       <td>${esc(dow(x.date))}</td>
-      ${alertCell(`${fmt(x.temp_min_c)} °C`,map.temp_min_c)}
-      ${alertCell(`${fmt(x.temp_max_c)} °C`,map.temp_max_c)}
-      ${alertCell(`${intOrDash(x.rh_min_pct)}%`,map.rh_min_pct)}
-      <td>${intOrDash(x.rh_max_pct)}%</td>
-      ${alertCell(`${fmt(x.rain_mm)} mm`,map.rain_mm,'rain')}
-      <td>${fmt(x.rain_prob_pct,0)}%</td>
-      <td>${fmt(x.wind_max_kmh)} km/h</td>
-      <td>${windDirHtml(x.wind_dir_deg,x.wind_max_kmh)}</td>
-      ${alertCell(`${fmt(x.gust_kmh)} km/h`,map.gust_kmh)}
-      ${alertCell(uvContent,map.uv_max)}
       <td class="badge-text">${labels.length?'⚠ '+esc(labels.join(' · ')):'—'}</td>
+      ${alertCell(fmt(x.temp_min_c),map.temp_min_c)}
+      ${alertCell(fmt(x.temp_max_c),map.temp_max_c)}
+      ${alertCell(intOrDash(x.rh_min_pct),map.rh_min_pct)}
+      <td>${intOrDash(x.rh_max_pct)}</td>
+      ${rainCell(x.rain_mm,map.rain_mm)}
+      <td>${fmt(x.rain_prob_pct,0)}</td>
+      <td>${fmt(x.wind_max_kmh)}</td>
+      <td>${windDirHtml(x.wind_dir_deg,x.wind_max_kmh)}</td>
+      ${alertCell(fmt(x.gust_kmh),map.gust_kmh)}
+      ${alertCell(uvContent,map.uv_max)}
     </tr>`;
   }).join('')}</tbody></table></div></div>`;
 }
 function tableHourly(rows,date){
   const now=new Date(), todayLocal=isoDateInZone(now), isToday=todayLocal===date;
-  return `<div class="card tablecard"><div class="scroll"><table><thead><tr><th>Hora</th><th>Temp.</th><th>UR</th><th>Chuva</th><th>Prob.</th><th>Vento</th><th>Dir.</th><th>Rajada</th><th>UV</th></tr></thead><tbody>${rows.map(x=>{
-    const lv=hourlyLevels(x); const current=isToday && Number(x.time.slice(0,2))===Number(new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',hour:'2-digit',hour12:false}).format(now));
-    return `<tr class="${current?'now':''}"><td>${esc(x.time)}</td>${alertCell(`${fmt(x.temp_c)} °C`,lv.temp_c)}${alertCell(`${intOrDash(x.rh_pct)}%`,lv.rh_pct)}${alertCell(`${fmt(x.rain_mm)} mm`,lv.rain_mm,'rain')}<td>${fmt(x.rain_prob_pct,0)}%</td><td>${fmt(x.wind_kmh)} km/h</td><td>${windDirHtml(x.wind_dir_deg,x.wind_kmh)}</td>${alertCell(`${fmt(x.gust_kmh)} km/h`,lv.gust_kmh)}${alertCell(intOrDash(x.uv),lv.uv)}</tr>`;
+  const currentHour=Number(new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',hour:'2-digit',hour12:false}).format(now));
+  return `<div class="card tablecard"><div class="scroll"><table class="hourly-table"><thead><tr><th>Hora</th><th>Destaques</th><th>Temp. °C</th><th>UR %</th><th>Chuva mm</th><th>Prob. %</th><th>Vento km/h</th><th>Dir.</th><th>Rajada km/h</th><th>UV</th></tr></thead><tbody>${rows.map(x=>{
+    const lv=hourlyLevels(x), labels=hourlyAlertLabels(x,lv);
+    const current=isToday && Number(x.time.slice(0,2))===currentHour;
+    const hasAlert=labels.length>0;
+    const rowClass=[current?'now':'',(!current&&hasAlert)?'hourly-row-highlight':''].filter(Boolean).join(' ');
+    return `<tr class="${rowClass}"><td>${esc(x.time)}${current?'<span class="now-tag">agora</span>':''}</td><td class="badge-text">${hasAlert?'⚠ '+esc(labels.join(' · ')):'—'}</td>${alertCell(fmt(x.temp_c),lv.temp_c)}${alertCell(intOrDash(x.rh_pct),lv.rh_pct)}${rainCell(x.rain_mm,lv.rain_mm)}<td>${fmt(x.rain_prob_pct,0)}</td><td>${fmt(x.wind_kmh)}</td><td>${windDirHtml(x.wind_dir_deg,x.wind_kmh)}</td>${alertCell(fmt(x.gust_kmh),lv.gust_kmh)}${alertCell(intOrDash(x.uv),lv.uv)}</tr>`;
   }).join('')}</tbody></table></div></div>`;
-}
-
-function topHighlights(rows,today){
-  const selected=rows.filter(x=>x.date>=today).map(x=>({x,a:dailyAlerts(x)})).filter(y=>y.a.length).slice(0,7);
-  if(!selected.length) return `<div class="card highlights"><h3>Destaques</h3><p>Nenhum evento extremo previsto nos próximos 7 dias.</p></div>`;
-  const phrases=selected.map(({x,a})=>{
-    const details=a.map(y=>{
-      const lvl=y.level==='alert'?'alerta':'atenção';
-      if(y.field==='gust_kmh') return `rajadas de até ${fmt(x.gust_kmh,0)} km/h (${lvl})`;
-      if(y.field==='temp_max_c') return `máxima de ${fmt(x.temp_max_c,0)} °C (${lvl})`;
-      if(y.field==='temp_min_c') return `mínima de ${fmt(x.temp_min_c,0)} °C (${lvl})`;
-      if(y.field==='rain_mm') return `chuva de ~${fmt(x.rain_mm,0)} mm (${lvl})`;
-      if(y.field==='rh_min_pct') return `umidade mínima de ${fmt(x.rh_min_pct,0)}% (${lvl})`;
-      if(y.field==='uv_max') return `UV máximo ${fmt(x.uv_max,0)} (${lvl})`;
-      return `${y.label} (${lvl})`;
-    });
-    return `<p><b>${esc(dow(x.date))}</b> — ${esc(details.join(' e '))}</p>`;
-  }).join('');
-  return `<div class="card highlights"><h3>Destaques</h3>${phrases}</div>`;
 }
 
 function render(label,lat,lon,data){
@@ -277,7 +296,6 @@ function render(label,lat,lon,data){
   const todayHourly=data.hourly.filter(x=>x.date===todayRow?.date), tomorrowHourly=data.hourly.filter(x=>x.date===tomorrowRow?.date);
   let out='';
   out+=`<div class="issued">Previsão emitida em ${esc(issuedAt())} (horário de Brasília)</div>`;
-  out+=topHighlights(data.daily.slice(todayIdx,todayIdx+8),todayRow.date);
   out+=legendHtml();
   out+=`<div class="section"><h2>Últimos 2 dias</h2><p>Resumo diário</p></div>`+tableDaily(past,true);
   out+=`<div class="section"><h2>Hoje — por hora</h2><p>${esc(dow(todayRow.date))}</p></div>`;
