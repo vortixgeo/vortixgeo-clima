@@ -81,9 +81,9 @@ tr:last-child td{border-bottom:0}
 <header><div class="brand"><h1>VortixGeo | Consulta Climática</h1><p>Consulta rápida por cidade ou coordenada</p></div></header>
 <main>
   <section class="panel">
-    <label for="q">Digite uma cidade ou coordenada</label>
+    <label for="q">Digite uma cidade, bairro ou coordenada</label>
     <div class="searchwrap"><div class="row"><input id="q" autocomplete="off" placeholder="Ex.: Cravinhos, SP ou -21.34, -47.73"/><button id="go">Consultar</button></div><div id="suggest" class="suggest"></div></div>
-    <div class="hint">Comece a digitar a cidade e selecione uma sugestão, ou cole latitude e longitude do Google Maps.</div>
+    <div class="hint">Comece a digitar a cidade ou bairro e selecione uma sugestão, ou cole latitude e longitude do Google Maps.</div>
     <div id="status" class="status"></div>
   </section>
   <section id="location" class="card location"><div id="locTitle" class="loc-title"></div><div id="locSub" class="loc-sub"></div></section>
@@ -134,13 +134,59 @@ function intOrDash(v){ return num(v)===null ? '—' : Math.round(Number(v)).toLo
 function isoDateInZone(date, tz='America/Sao_Paulo'){ return new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).format(date); }
 function issuedAt(){ return new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date()); }
 
-async function citySearch(q){ const url='https://geocoding-api.open-meteo.com/v1/search?name='+encodeURIComponent(q)+'&count=7&language=pt&format=json'; const r=await fetch(url); if(!r.ok) throw new Error('Falha na busca de cidades'); const j=await r.json(); return j.results||[]; }
-function placeLabel(x){ return [x.name,x.admin1,x.country_code].filter(Boolean).join(', '); }
+function normalizeOpenMeteoPlace(x){
+  return {
+    latitude:Number(x.latitude), longitude:Number(x.longitude),
+    label:[x.name,x.admin1,x.country_code].filter(Boolean).join(', '),
+    source:'open-meteo'
+  };
+}
+function normalizeNominatimPlace(x){
+  const a=x.address||{};
+  const name=a.suburb||a.neighbourhood||a.quarter||a.city_district||a.city||a.town||a.village||x.name||String(x.display_name||'').split(',')[0];
+  const city=a.city||a.town||a.village||a.municipality||a.city_district;
+  const state=a.state||a.region;
+  const country=a.country_code ? String(a.country_code).toUpperCase() : a.country;
+  const parts=[];
+  for(const part of [name, city && city!==name ? city : null, state, country]) if(part && !parts.includes(part)) parts.push(part);
+  return { latitude:Number(x.lat), longitude:Number(x.lon), label:parts.join(', ') || x.display_name, source:'nominatim' };
+}
+async function openMeteoPlaceSearch(q){
+  const url='https://geocoding-api.open-meteo.com/v1/search?name='+encodeURIComponent(q)+'&count=7&language=pt&format=json';
+  const r=await fetch(url); if(!r.ok) throw new Error('Falha na busca de cidades');
+  const j=await r.json(); return (j.results||[]).map(normalizeOpenMeteoPlace);
+}
+async function nominatimPlaceSearch(q){
+  const url='https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=7&countrycodes=br&accept-language=pt-BR&q='+encodeURIComponent(q);
+  const r=await fetch(url,{headers:{'Accept':'application/json'}}); if(!r.ok) return [];
+  const j=await r.json(); return (j||[]).map(normalizeNominatimPlace).filter(x=>Number.isFinite(x.latitude)&&Number.isFinite(x.longitude));
+}
+function searchTokens(s){
+  return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()
+    .replace(/[^a-z0-9]+/g,' ').trim().split(/\s+/).filter(t=>t.length>2 && t!=='brasil');
+}
+function labelMatchesQuery(label,q){
+  const hay=searchTokens(label); const needle=searchTokens(q);
+  return needle.length>0 && needle.every(t=>hay.includes(t));
+}
+async function locationSearch(q){
+  let primary=[];
+  try{ primary=await openMeteoPlaceSearch(q); }catch(e){}
+  // Se o geocodificador de cidades trouxer algo realmente compatível com a busca,
+  // usamos o resultado. Caso contrário (ex.: bairro Campo Belo em São Paulo),
+  // fazemos fallback para OpenStreetMap/Nominatim.
+  if(primary.length && primary.some(x=>labelMatchesQuery(x.label,q))) return primary;
+  try{
+    const fallback=await nominatimPlaceSearch(q);
+    return fallback.length ? fallback : primary;
+  }catch(e){ return primary; }
+}
+function placeLabel(x){ return x.label || ''; }
 function renderSuggestions(items){ const box=$('suggest'); box.innerHTML=''; if(!items.length){ box.style.display='none'; return; } items.forEach(x=>{ const d=document.createElement('div'); d.textContent=placeLabel(x); d.onclick=()=>{ selected={lat:x.latitude,lon:x.longitude,label:placeLabel(x)}; $('q').value=selected.label; box.style.display='none'; run(selected); }; box.appendChild(d); }); box.style.display='block'; }
-$('q').addEventListener('input',()=>{ selected=null; hideStatus(); clearTimeout(debounceTimer); const v=$('q').value.trim(); if(parseCoords(v)||v.length<3){$('suggest').style.display='none'; return;} debounceTimer=setTimeout(async()=>{ try{ renderSuggestions(await citySearch(v)); }catch(e){ $('suggest').style.display='none'; } },300); });
+$('q').addEventListener('input',()=>{ selected=null; hideStatus(); clearTimeout(debounceTimer); const v=$('q').value.trim(); if(parseCoords(v)||v.length<3){$('suggest').style.display='none'; return;} debounceTimer=setTimeout(async()=>{ try{ renderSuggestions(await locationSearch(v)); }catch(e){ $('suggest').style.display='none'; } },500); });
 document.addEventListener('click',e=>{ if(!e.target.closest('.searchwrap')) $('suggest').style.display='none'; });
 $('q').addEventListener('keydown',e=>{ if(e.key==='Enter') submit(); }); $('go').onclick=submit;
-async function submit(){ hideStatus(); const v=$('q').value.trim(); if(!v){showStatus('Digite uma cidade ou coordenada.','err');return;} const c=parseCoords(v); if(c) return run({lat:c.lat,lon:c.lon,label:'Local por coordenada',reverse:true}); if(selected) return run(selected); try{ const rs=await citySearch(v); if(!rs.length){showStatus('Cidade não encontrada. Digite parte do nome e escolha uma sugestão.','err');return;} const x=rs[0]; selected={lat:x.latitude,lon:x.longitude,label:placeLabel(x)}; $('q').value=selected.label; run(selected); }catch(e){showStatus('Não foi possível buscar a cidade agora.','err');} }
+async function submit(){ hideStatus(); const v=$('q').value.trim(); if(!v){showStatus('Digite uma cidade, bairro ou coordenada.','err');return;} const c=parseCoords(v); if(c) return run({lat:c.lat,lon:c.lon,label:'Local por coordenada',reverse:true}); if(selected) return run(selected); try{ const rs=await locationSearch(v); if(!rs.length){showStatus('Local não encontrado. Digite parte do bairro/cidade e escolha uma sugestão.','err');return;} const x=rs[0]; selected={lat:x.latitude,lon:x.longitude,label:placeLabel(x)}; $('q').value=selected.label; run(selected); }catch(e){showStatus('Não foi possível buscar o local agora.','err');} }
 async function reverseLabel(lat,lon){ try{ const url=`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}&zoom=10&accept-language=pt-BR`; const r=await fetch(url,{headers:{'Accept':'application/json'}}); if(!r.ok) return null; const j=await r.json(); const a=j.address||{}; const city=a.city||a.town||a.village||a.municipality||a.county; const state=a.state; return [city,state].filter(Boolean).join(', ') || j.display_name || null; }catch(e){return null;} }
 
 // Camada do fornecedor: hoje Open-Meteo; depois pode ser substituída pela TWC.
