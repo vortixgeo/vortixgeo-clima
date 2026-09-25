@@ -90,7 +90,7 @@ tr:last-child td{border-bottom:0}
   <section class="panel">
     <label for="q">Digite uma cidade, bairro ou coordenada</label>
     <div class="searchwrap"><div class="row"><input id="q" autocomplete="off" placeholder="Ex.: Bom Jesus | Bom Jesus, RS | São Paulo, Campo Belo"/><button id="go">Consultar</button></div><div id="suggest" class="suggest"></div></div>
-    <div class="hint">Digite primeiro a cidade. Para bairro, use Cidade, Bairro (ex.: São Paulo, Campo Belo). Para filtrar por estado, use Cidade, UF (ex.: Bom Jesus, RS). <b>Busca v18</b></div>
+    <div class="hint">Digite primeiro a cidade. Para bairro, use Cidade, Bairro (ex.: São Paulo, Campo Belo). Para filtrar por estado, use Cidade, UF (ex.: Bom Jesus, RS). <b>Busca v18 · Dados TWC</b></div>
     <div id="status" class="status"></div>
   </section>
   <section id="location" class="card location"><div id="locTitle" class="loc-title"></div><div id="locSub" class="loc-sub"></div><div class="location-actions"><button id="exportBtn" class="export-btn" type="button" onclick="exportExcel()" disabled>⬇ Exportar para Excel</button></div></section>
@@ -363,55 +363,120 @@ $('q').addEventListener('keydown',e=>{ if(e.key==='Enter') submit(); }); $('go')
 async function submit(){ hideStatus(); const v=$('q').value.trim(); if(!v){showStatus('Digite uma cidade, bairro ou coordenada.','err');return;} const c=parseCoords(v); if(c) return run({lat:c.lat,lon:c.lon,label:'Local por coordenada',reverse:true}); if(selected) return run(selected); try{ const rs=await locationSearch(v); if(!rs.length){showStatus('Local não encontrado. Digite parte do bairro/cidade e escolha uma sugestão.','err');return;} const x=rs[0]; selected=(x.placeType==='city' && x.source==='ibge') ? await geocodeMunicipality(x) : {lat:x.latitude,lon:x.longitude,label:placeLabel(x)}; $('q').value=selected.label; run(selected); }catch(e){showStatus('Não foi possível buscar o local agora.','err');} }
 async function reverseLabel(lat,lon){ try{ const url=`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}&zoom=10&accept-language=pt-BR`; const r=await fetch(url,{headers:{'Accept':'application/json'}}); if(!r.ok) return null; const j=await r.json(); const a=j.address||{}; const city=a.city||a.town||a.village||a.municipality||a.county; const state=a.state; return [city,state].filter(Boolean).join(', ') || j.display_name || null; }catch(e){return null;} }
 
-// Camada do fornecedor: hoje Open-Meteo; depois pode ser substituída pela TWC.
-async function fetchWeatherProvider(loc){
-  const params = new URLSearchParams({
-    latitude:loc.lat, longitude:loc.lon, timezone:'America/Sao_Paulo', past_days:'2', forecast_days:'8',
-    hourly:'temperature_2m,relative_humidity_2m,precipitation,precipitation_probability,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index',
-    daily:'temperature_2m_max,temperature_2m_min,relative_humidity_2m_min,relative_humidity_2m_max,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_direction_10m_dominant,wind_gusts_10m_max,uv_index_max',
-    wind_speed_unit:'kmh'
+// Camada do fornecedor: The Weather Company (TWC).
+// Chave de TESTE fornecida para esta versão. Em produção, use um proxy/backend para não expor a chave no HTML público.
+const TWC_API_KEY = '648540689b51413f8540689b51d13f03';
+const TWC_BASE = 'https://api.weather.com';
+
+function twcUrl(path,loc){
+  const p=new URLSearchParams({
+    geocode:`${Number(loc.lat).toFixed(3)},${Number(loc.lon).toFixed(3)}`,
+    units:'m', language:'pt-BR', format:'json', apiKey:TWC_API_KEY
   });
-  const r=await fetch('https://api.open-meteo.com/v1/forecast?'+params.toString());
-  if(!r.ok) throw new Error('Falha ao consultar dados meteorológicos.');
+  return `${TWC_BASE}${path}?${p.toString()}`;
+}
+
+async function twcFetch(path,loc){
+  const r=await fetch(twcUrl(path,loc));
+  if(!r.ok){
+    let detail='';
+    try{ detail=(await r.text()).slice(0,180); }catch(_e){}
+    const err=new Error(`TWC ${r.status}${detail?': '+detail:''}`);
+    err.status=r.status; throw err;
+  }
   return r.json();
 }
 
-// Normalização: todo o restante da interface usa apenas este formato canônico.
-function normalizeOpenMeteo(j){
-  const h=j.hourly||{}, d=j.daily||{};
-  const hourly=(h.time||[]).map((t,i)=>({
-    datetime:t, date:t.slice(0,10), time:t.slice(11,16),
-    temp_c:num(h.temperature_2m?.[i]), rh_pct:num(h.relative_humidity_2m?.[i]), rain_mm:num(h.precipitation?.[i]),
-    rain_prob_pct:num(h.precipitation_probability?.[i]), wind_kmh:num(h.wind_speed_10m?.[i]), wind_dir_deg:num(h.wind_direction_10m?.[i]),
-    gust_kmh:num(h.wind_gusts_10m?.[i]), uv:num(h.uv_index?.[i])
-  }));
-  const byDate = {};
-  for (const row of hourly) {
-    if (!byDate[row.date]) byDate[row.date] = [];
-    byDate[row.date].push(row);
-  }
-  const daily=(d.time||[]).map((date,i)=>{
-    const hs=byDate[date]||[];
-    const rhVals=hs.map(x=>x.rh_pct).filter(v=>v!==null);
-    const uvVals=hs.map(x=>x.uv).filter(v=>v!==null);
+async function fetchWeatherProvider(loc){
+  // 3 produtos TWC: previsão diária, previsão horária e histórico diário.
+  // Tenta 10 dias horários para completar rajada/UR/UV dos próximos dias;
+  // se a chave não tiver esse entitlement, cai automaticamente para 2 dias.
+  const dailyP=twcFetch('/v3/wx/forecast/daily/10day',loc);
+  const histP=twcFetch('/v3/wx/conditions/historical/dailysummary/30day',loc);
+  const hourlyP=twcFetch('/v3/wx/forecast/hourly/10day',loc).catch(e=>{
+    if(e && (e.status===401||e.status===403||e.status===404)) return twcFetch('/v3/wx/forecast/hourly/2day',loc);
+    throw e;
+  });
+  const [daily,hourly,historical]=await Promise.all([dailyP,hourlyP,histP]);
+  return {daily,hourly,historical};
+}
+
+function twcDateTime(s){
+  const v=String(s||'');
+  return {date:v.slice(0,10),time:v.slice(11,16)};
+}
+function vals(a){ return (a||[]).map(num).filter(v=>v!==null); }
+function maxOrNull(a){ const v=vals(a); return v.length?Math.max(...v):null; }
+function minOrNull(a){ const v=vals(a); return v.length?Math.min(...v):null; }
+function sumOrNull(a){ const v=vals(a); return v.length?v.reduce((s,x)=>s+x,0):null; }
+function predominantDirection(rows){
+  const valid=rows.filter(x=>num(x.wind_dir_deg)!==null && num(x.wind_kmh)!==null);
+  if(!valid.length) return null;
+  let sx=0,sy=0;
+  for(const x of valid){ const r=Number(x.wind_dir_deg)*Math.PI/180, w=Math.max(1,Number(x.wind_kmh)); sx+=Math.sin(r)*w; sy+=Math.cos(r)*w; }
+  if(Math.abs(sx)<1e-9 && Math.abs(sy)<1e-9) return valid[0].wind_dir_deg;
+  return (Math.atan2(sx,sy)*180/Math.PI+360)%360;
+}
+
+// Normalização: toda a interface continua usando o mesmo formato canônico da versão anterior.
+function normalizeTWC(raw){
+  const h=raw.hourly||{}, d=raw.daily||{};
+  const hist=Array.isArray(raw.historical)?(raw.historical[0]||{}):(raw.historical||{});
+
+  const hourly=(h.validTimeLocal||[]).map((t,i)=>{
+    const dt=twcDateTime(t);
     return {
-      date,
-      temp_min_c:num(d.temperature_2m_min?.[i]), temp_max_c:num(d.temperature_2m_max?.[i]),
-      rh_min_pct:num(d.relative_humidity_2m_min?.[i]) ?? (rhVals.length?Math.min(...rhVals):null),
-      rh_max_pct:num(d.relative_humidity_2m_max?.[i]) ?? (rhVals.length?Math.max(...rhVals):null),
-      rain_mm:num(d.precipitation_sum?.[i]), rain_prob_pct:num(d.precipitation_probability_max?.[i]),
-      wind_max_kmh:num(d.wind_speed_10m_max?.[i]), wind_dir_deg:num(d.wind_direction_10m_dominant?.[i]),
-      gust_kmh:num(d.wind_gusts_10m_max?.[i]), uv_max:num(d.uv_index_max?.[i]) ?? (uvVals.length?Math.max(...uvVals):null)
+      datetime:t, epoch:num(h.validTimeUtc?.[i]), date:dt.date, time:dt.time,
+      temp_c:num(h.temperature?.[i]), rh_pct:num(h.relativeHumidity?.[i]), rain_mm:num(h.qpfRain?.[i]) ?? num(h.qpf?.[i]),
+      rain_prob_pct:num(h.precipChance?.[i]), wind_kmh:num(h.windSpeed?.[i]), wind_dir_deg:num(h.windDirection?.[i]),
+      gust_kmh:num(h.windGust?.[i]), uv:num(h.uvIndex?.[i])
     };
   });
-  return { timezone:j.timezone||'America/Sao_Paulo', hourly, daily };
+  const byDate={};
+  for(const row of hourly){ (byDate[row.date] ||= []).push(row); }
+
+  const forecastDaily=(d.validTimeLocal||[]).map((t,i)=>{
+    const date=twcDateTime(t).date;
+    const hs=byDate[date]||[];
+    const dp=(d.daypart&&d.daypart[0])||{};
+    const dpStart=i*2, dpEnd=dpStart+2;
+    const slice=name=>(dp[name]||[]).slice(dpStart,dpEnd);
+    return {
+      date,
+      temp_min_c:num(d.temperatureMin?.[i]) ?? minOrNull(hs.map(x=>x.temp_c)),
+      temp_max_c:num(d.temperatureMax?.[i]) ?? maxOrNull(hs.map(x=>x.temp_c)),
+      rh_min_pct:minOrNull(hs.map(x=>x.rh_pct)) ?? minOrNull(slice('relativeHumidity')),
+      rh_max_pct:maxOrNull(hs.map(x=>x.rh_pct)) ?? maxOrNull(slice('relativeHumidity')),
+      rain_mm:num(d.qpfRain?.[i]) ?? num(d.qpf?.[i]) ?? sumOrNull(hs.map(x=>x.rain_mm)),
+      rain_prob_pct:maxOrNull(hs.map(x=>x.rain_prob_pct)) ?? maxOrNull(slice('precipChance')),
+      wind_max_kmh:maxOrNull(hs.map(x=>x.wind_kmh)) ?? maxOrNull(slice('windSpeed')),
+      wind_dir_deg:predominantDirection(hs) ?? (()=>{ const a=vals(slice('windDirection')); return a.length?a[0]:null; })(),
+      gust_kmh:maxOrNull(hs.map(x=>x.gust_kmh)),
+      uv_max:maxOrNull(hs.map(x=>x.uv)) ?? maxOrNull(slice('uvIndex'))
+    };
+  });
+
+  // O resumo histórico de 30 dias da TWC fornece temperatura e precipitação.
+  // Campos não publicados nesse produto (UR, probabilidade, vento/rajada e UV) ficam como —.
+  const historicalDaily=(hist.validTimeLocal||[]).map((t,i)=>({
+    date:twcDateTime(t).date,
+    temp_min_c:num(hist.temperatureMin?.[i]), temp_max_c:num(hist.temperatureMax?.[i]),
+    rh_min_pct:null, rh_max_pct:null,
+    rain_mm:num(hist.rain24Hour?.[i]) ?? num(hist.precip24Hour?.[i]), rain_prob_pct:null,
+    wind_max_kmh:null, wind_dir_deg:null, gust_kmh:null, uv_max:null
+  })).sort((a,b)=>a.date.localeCompare(b.date));
+
+  const todayDate=forecastDaily[0]?.date || hourly[0]?.date || isoDateInZone(new Date());
+  const past=historicalDaily.filter(x=>x.date<todayDate).slice(-2);
+  const daily=[...past,...forecastDaily];
+  return { timezone:'Horário local TWC', todayDate, hourly, daily };
 }
 
 async function run(loc){
   $('suggest').style.display='none'; $('results').innerHTML=''; $('location').className='card location'; if($('exportBtn')) $('exportBtn').disabled=true; $('loader').className='loader show'; $('go').disabled=true; hideStatus();
   try{
     let label=loc.label; if(loc.reverse){ const rev=await reverseLabel(loc.lat,loc.lon); if(rev) label=rev; }
-    const raw=await fetchWeatherProvider(loc); const data=normalizeOpenMeteo(raw); render(label,loc.lat,loc.lon,data);
+    const raw=await fetchWeatherProvider(loc); const data=normalizeTWC(raw); render(label,loc.lat,loc.lon,data);
   }catch(e){ showStatus(e.message||'Não foi possível realizar a consulta.','err'); }
   finally{ $('loader').className='loader'; $('go').disabled=false; }
 }
@@ -495,11 +560,13 @@ function tableDaily(rows, isPast=false){
   }).join('')}</tbody></table></div></div>`;
 }
 function tableHourly(rows,date){
-  const now=new Date(), todayLocal=isoDateInZone(now), isToday=todayLocal===date;
-  const currentHour=Number(new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',hour:'2-digit',hour12:false}).format(now));
+  const nowSec=Date.now()/1000;
+  let closestEpoch=null;
+  for(const r of rows){ if(num(r.epoch)!==null && (closestEpoch===null || Math.abs(r.epoch-nowSec)<Math.abs(closestEpoch-nowSec))) closestEpoch=r.epoch; }
+  const isCurrentDate=rows.some(r=>num(r.epoch)!==null && Math.abs(r.epoch-nowSec)<=5400);
   return `<div class="card tablecard"><div class="scroll"><table class="hourly-table"><thead><tr><th>Hora</th><th>Destaques</th><th>Temp. °C</th><th>UR %</th><th>Chuva mm</th><th>Prob. %</th><th>Vento km/h</th><th>Dir.</th><th>Rajada km/h</th><th>UV</th></tr></thead><tbody>${rows.map(x=>{
     const lv=hourlyLevels(x), labels=hourlyAlertLabels(x,lv);
-    const current=isToday && Number(x.time.slice(0,2))===currentHour;
+    const current=isCurrentDate && closestEpoch!==null && x.epoch===closestEpoch;
     const hasAlert=labels.length>0;
     const rowClass=[current?'now':'',(!current&&hasAlert)?'hourly-row-highlight':''].filter(Boolean).join(' ');
     return `<tr class="${rowClass}"><td>${esc(x.time)}${current?'<span class="now-tag">agora</span>':''}</td><td class="badge-text">${hasAlert?'⚠ '+esc(labels.join(' · ')):'—'}</td>${alertCell(fmt(x.temp_c),lv.temp_c)}${alertCell(intOrDash(x.rh_pct),lv.rh_pct)}${rainCell(x.rain_mm,lv.rain_mm)}<td>${fmt(x.rain_prob_pct,0)}</td><td>${fmt(x.wind_kmh)}</td><td>${windDirHtml(x.wind_dir_deg,x.wind_kmh)}</td>${alertCell(fmt(x.gust_kmh),lv.gust_kmh)}${alertCell(intOrDash(x.uv),lv.uv)}</tr>`;
@@ -569,7 +636,7 @@ function exportExcel(){
     ['VortixGeo | Consulta Climática',''],
     ['Local',label],['Latitude',Number(lat)],['Longitude',Number(lon)],
     ['Fuso horário',data.timezone||'America/Sao_Paulo'],['Emitido em',issuedAt()+' (horário de Brasília)'],
-    ['Fonte meteorológica','Open-Meteo (camada normalizada; preparada para TWC)']
+    ['Fonte meteorológica','The Weather Company (TWC)']
   ];
   const wsMeta=XLSX.utils.aoa_to_sheet(meta); wsMeta['!cols']=[{wch:24},{wch:55}]; XLSX.utils.book_append_sheet(wb,wsMeta,'Consulta');
   const drows=exportDailyRows([...past,...(todayRow?[todayRow]:[]),...(tomorrowRow?[tomorrowRow]:[]),...future]);
@@ -581,9 +648,9 @@ function exportExcel(){
 }
 
 function render(label,lat,lon,data){
-  $('locTitle').textContent=label; $('locSub').innerHTML=`Coordenada usada: <b>${Number(lat).toFixed(6)}, ${Number(lon).toFixed(6)}</b><br>Fuso horário: ${esc(data.timezone||'America/Sao_Paulo')}`; $('location').className='card location show';
-  const today=isoDateInZone(new Date()), dates=data.daily.map(x=>x.date);
-  let todayIdx=dates.indexOf(today); if(todayIdx<0) todayIdx=2;
+  $('locTitle').textContent=label; $('locSub').innerHTML=`Coordenada usada: <b>${Number(lat).toFixed(6)}, ${Number(lon).toFixed(6)}</b><br>Fuso horário: ${esc(data.timezone||'Horário local TWC')}`; $('location').className='card location show';
+  const today=data.todayDate||isoDateInZone(new Date()), dates=data.daily.map(x=>x.date);
+  let todayIdx=dates.indexOf(today); if(todayIdx<0) todayIdx=Math.min(2,Math.max(0,data.daily.length-1));
   currentExportData={label,lat,lon,data,todayIdx}; if($('exportBtn')) $('exportBtn').disabled=false;
   const past=data.daily.slice(Math.max(0,todayIdx-2),todayIdx);
   const todayRow=data.daily[todayIdx], tomorrowRow=data.daily[todayIdx+1];
@@ -598,7 +665,7 @@ function render(label,lat,lon,data){
   out+=tableHourly(todayHourly,todayRow.date);
   out+=`<div class="section"><h2>Amanhã — por hora</h2><p>${esc(dow(tomorrowRow.date))}</p></div>`+tableHourly(tomorrowHourly,tomorrowRow.date);
   out+=`<div class="section"><h2>Próximos dias</h2><p>Resumo diário</p></div>`+tableDaily(future,false);
-  out+=`<div class="footer-note">Versão piloto para teste de usabilidade em campo. Fonte meteorológica desta versão: Open‑Meteo. A interface usa uma camada normalizada independente do fornecedor para posterior conexão à The Weather Company (TWC) sem alterar regras, destaques ou apresentação.</div>`;
+  out+=`<div class="footer-note">Versão piloto para teste de usabilidade em campo. Fonte meteorológica desta versão: The Weather Company (TWC). Regras, destaques e apresentação preservados; dados indisponíveis em determinado produto TWC aparecem como —.</div>`;
   $('results').innerHTML=out;
 }
 </script>
