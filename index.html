@@ -156,7 +156,7 @@ function normalizeNominatimPlace(x){
   return { latitude:Number(x.lat), longitude:Number(x.lon), label:parts.join(', ') || x.display_name, source:'nominatim' };
 }
 async function openMeteoPlaceSearch(q){
-  const url='https://geocoding-api.open-meteo.com/v1/search?name='+encodeURIComponent(q)+'&count=20&language=pt&format=json';
+  const url='https://geocoding-api.open-meteo.com/v1/search?name='+encodeURIComponent(q)+'&count=100&language=pt&format=json&countryCode=BR';
   const r=await fetch(url); if(!r.ok) throw new Error('Falha na busca de cidades');
   const j=await r.json(); return (j.results||[]).map(normalizeOpenMeteoPlace);
 }
@@ -181,11 +181,14 @@ function locationRank(x,q){
   const label=String(x.label||'');
   const nq=searchTokens(q).join(' ');
   const nl=searchTokens(label).join(' ');
+  const primary=searchTokens(label.split(',')[0]).join(' ');
   let score=0;
+  if(primary===nq) score+=200;
   if(labelMatchesQuery(label,q)) score+=100;
   if(nl.startsWith(nq)) score+=40;
-  if(/,\s*BR$/i.test(label)) score+=20;
-  if(x.source==='nominatim') score+=2; // ajuda bairros/distritos sem eliminar cidades
+  if(/,\s*BR$/i.test(label)) score+=30;
+  if(x.source==='open-meteo') score+=5;
+  if(x.source==='nominatim') score+=2;
   return score;
 }
 async function locationSearch(q){
@@ -206,7 +209,7 @@ async function locationSearch(q){
     .map((x,i)=>({x,i,score:locationRank(x,q)}))
     .sort((a,b)=>b.score-a.score || a.i-b.i)
     .map(v=>v.x)
-    .slice(0,30);
+    .slice(0,100);
 }
 function placeLabel(x){ return x.label || ''; }
 function renderSuggestions(items){ const box=$('suggest'); box.innerHTML=''; if(!items.length){ box.style.display='none'; return; } items.forEach(x=>{ const d=document.createElement('div'); d.textContent=placeLabel(x); d.onclick=()=>{ selected={lat:x.latitude,lon:x.longitude,label:placeLabel(x)}; $('q').value=selected.label; box.style.display='none'; run(selected); }; box.appendChild(d); }); box.style.display='block'; }
