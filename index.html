@@ -150,20 +150,33 @@ function ownNameMatchesQuery(x,q){
   const query=normalizeText(q);
   return !!query && name.includes(query);
 }
+let municipalityCache = null;
+
+async function loadBrazilMunicipalities(){
+  if(municipalityCache) return municipalityCache;
+  const r=await fetch('https://servicodados.ibge.gov.br/api/v1/localidades/municipios?orderBy=nome');
+  if(!r.ok) throw new Error('Falha ao carregar municípios do IBGE.');
+  const rows=await r.json();
+  municipalityCache=(rows||[]).map(m=>{
+    const uf=m.microrregiao?.mesorregiao?.UF || m['regiao-imediata']?.['regiao-intermediaria']?.UF || {};
+    return {
+      name:m.nome,
+      state:uf.nome||'',
+      stateCode:uf.sigla||'',
+      ibgeId:m.id,
+      placeType:'city',
+      source:'ibge',
+      label:[m.nome,uf.nome,'BR'].filter(Boolean).join(', ')
+    };
+  });
+  return municipalityCache;
+}
+
 function classifyNominatimPlace(x){
   const rawType=String(x.type||'').toLowerCase();
   const addressType=String(x.addresstype||'').toLowerCase();
-  const cls=String(x.class||x.category||'').toLowerCase();
-
-  // Município/cidade de verdade. Não usa a cidade-pai do endereço para promover
-  // bairros, povoados ou outros resultados a "cidade".
-  if(['city','town','municipality'].includes(addressType) ||
-     ['city','town','municipality'].includes(rawType) ||
-     (cls==='boundary' && rawType==='administrative' && addressType==='municipality')) return 'city';
-
   if(['suburb','neighbourhood','quarter','city_district','borough'].includes(addressType) ||
      ['suburb','neighbourhood','quarter','city_district','borough'].includes(rawType)) return 'neighborhood';
-
   return 'other';
 }
 function normalizeNominatimPlace(x){
@@ -174,7 +187,7 @@ function normalizeNominatimPlace(x){
   const state=a.state||a.region;
   const country=a.country_code ? String(a.country_code).toUpperCase() : a.country;
   const parts=[];
-  for(const part of [name, placeType!=='city' && city && normalizeText(city)!==normalizeText(name) ? city : null, state, country]){
+  for(const part of [name, city && normalizeText(city)!==normalizeText(name) ? city : null, state, country]){
     if(part && !parts.includes(part)) parts.push(part);
   }
   return {
@@ -191,32 +204,36 @@ async function nominatimRawSearch(q){
 }
 
 function locationKey(x){
-  // Deduplica pelo texto exibido: evita a mesma cidade/bairro aparecer duas vezes
-  // quando o geocodificador devolve mais de um objeto OSM para o mesmo lugar.
   return x.placeType+'|'+normalizeText(x.label);
 }
 function locationRank(x,q){
   const qn=normalizeText(q), nn=normalizeText(x.name||String(x.label||'').split(',')[0]);
-  let score=x.placeType==='city'?1000:x.placeType==='neighborhood'?500:100;
+  let score=x.placeType==='city'?1000:500;
   if(nn===qn) score+=400;
   else if(nn.startsWith(qn)) score+=250;
   else if(nn.includes(qn)) score+=150;
   return score;
 }
 async function locationSearch(q){
-  const raw=await nominatimRawSearch(q).catch(()=>[]);
+  const query=normalizeText(q);
+  const [municipalities, raw] = await Promise.all([
+    loadBrazilMunicipalities().catch(()=>[]),
+    nominatimRawSearch(q).catch(()=>[])
+  ]);
 
-  // Regra essencial: o próprio nome retornado precisa conter o que o usuário digitou.
-  // Evita mostrar a cidade-pai quando "Bom Jesus" é apenas um bairro/localidade dentro dela.
-  const normalized=(raw||[])
+  // Fonte oficial para cidades: somente municípios do IBGE.
+  const cities=(municipalities||[])
+    .filter(x=>normalizeText(x.name).includes(query));
+
+  // Nominatim fica restrito a bairros urbanos. Nunca promove bairro/localidade a cidade.
+  const neighborhoods=(raw||[])
     .filter(x=>ownNameMatchesQuery(x,q))
     .map(normalizeNominatimPlace)
-    // Mostrar somente municípios/cidades reais e bairros urbanos.
-    // Povoados, vilas, localidades, rios, estradas, fazendas etc. ficam fora.
-    .filter(x=>['city','neighborhood'].includes(x.placeType) && Number.isFinite(x.latitude) && Number.isFinite(x.longitude));
+    .filter(x=>x.placeType==='neighborhood' && Number.isFinite(x.latitude) && Number.isFinite(x.longitude));
 
+  const combined=[...cities,...neighborhoods];
   const seen=new Set(), unique=[];
-  for(const x of normalized){
+  for(const x of combined){
     const k=locationKey(x);
     if(seen.has(k)) continue;
     seen.add(k); unique.push(x);
@@ -229,12 +246,29 @@ async function locationSearch(q){
     .slice(0,100);
 }
 
+async function geocodeMunicipality(x){
+  const q=[x.name,x.state,'Brasil'].filter(Boolean).join(', ');
+  const url='https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=10&countrycodes=br&accept-language=pt-BR&q='+encodeURIComponent(q);
+  const r=await fetch(url,{headers:{'Accept':'application/json'}});
+  if(!r.ok) throw new Error('Não foi possível localizar o município selecionado.');
+  const rows=await r.json();
+  const targetName=normalizeText(x.name), targetState=normalizeText(x.state);
+  const exact=(rows||[]).find(row=>{
+    const a=row.address||{};
+    const own=normalizeText(ownPlaceName(row));
+    const state=normalizeText(a.state||a.region||'');
+    return own===targetName && (!targetState || state===targetState);
+  }) || (rows||[]).find(row=>normalizeText(ownPlaceName(row))===targetName) || (rows||[])[0];
+  if(!exact) throw new Error('Não foi possível localizar o município selecionado.');
+  return {lat:Number(exact.lat),lon:Number(exact.lon),label:x.label};
+}
+
 function placeLabel(x){ return x.label || ''; }
-function renderSuggestions(items){ const box=$('suggest'); box.innerHTML=''; if(!items.length){ box.style.display='none'; return; } items.forEach(x=>{ const d=document.createElement('div'); d.textContent=placeLabel(x); d.onclick=()=>{ selected={lat:x.latitude,lon:x.longitude,label:placeLabel(x)}; $('q').value=selected.label; box.style.display='none'; run(selected); }; box.appendChild(d); }); box.style.display='block'; }
+function renderSuggestions(items){ const box=$('suggest'); box.innerHTML=''; if(!items.length){ box.style.display='none'; return; } items.forEach(x=>{ const d=document.createElement('div'); d.textContent=placeLabel(x); d.onclick=async()=>{ box.style.display='none'; try{ if(x.placeType==='city' && x.source==='ibge'){ const g=await geocodeMunicipality(x); selected=g; } else { selected={lat:x.latitude,lon:x.longitude,label:placeLabel(x)}; } $('q').value=selected.label; run(selected); }catch(e){ showStatus(e.message||'Não foi possível localizar o município.','err'); } }; box.appendChild(d); }); box.style.display='block'; }
 $('q').addEventListener('input',()=>{ selected=null; hideStatus(); clearTimeout(debounceTimer); const v=$('q').value.trim(); if(parseCoords(v)||v.length<3){$('suggest').style.display='none'; return;} debounceTimer=setTimeout(async()=>{ try{ renderSuggestions(await locationSearch(v)); }catch(e){ $('suggest').style.display='none'; } },500); });
 document.addEventListener('click',e=>{ if(!e.target.closest('.searchwrap')) $('suggest').style.display='none'; });
 $('q').addEventListener('keydown',e=>{ if(e.key==='Enter') submit(); }); $('go').onclick=submit;
-async function submit(){ hideStatus(); const v=$('q').value.trim(); if(!v){showStatus('Digite uma cidade, bairro ou coordenada.','err');return;} const c=parseCoords(v); if(c) return run({lat:c.lat,lon:c.lon,label:'Local por coordenada',reverse:true}); if(selected) return run(selected); try{ const rs=await locationSearch(v); if(!rs.length){showStatus('Local não encontrado. Digite parte do bairro/cidade e escolha uma sugestão.','err');return;} const x=rs[0]; selected={lat:x.latitude,lon:x.longitude,label:placeLabel(x)}; $('q').value=selected.label; run(selected); }catch(e){showStatus('Não foi possível buscar o local agora.','err');} }
+async function submit(){ hideStatus(); const v=$('q').value.trim(); if(!v){showStatus('Digite uma cidade, bairro ou coordenada.','err');return;} const c=parseCoords(v); if(c) return run({lat:c.lat,lon:c.lon,label:'Local por coordenada',reverse:true}); if(selected) return run(selected); try{ const rs=await locationSearch(v); if(!rs.length){showStatus('Local não encontrado. Digite parte do bairro/cidade e escolha uma sugestão.','err');return;} const x=rs[0]; selected=(x.placeType==='city' && x.source==='ibge') ? await geocodeMunicipality(x) : {lat:x.latitude,lon:x.longitude,label:placeLabel(x)}; $('q').value=selected.label; run(selected); }catch(e){showStatus('Não foi possível buscar o local agora.','err');} }
 async function reverseLabel(lat,lon){ try{ const url=`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}&zoom=10&accept-language=pt-BR`; const r=await fetch(url,{headers:{'Accept':'application/json'}}); if(!r.ok) return null; const j=await r.json(); const a=j.address||{}; const city=a.city||a.town||a.village||a.municipality||a.county; const state=a.state; return [city,state].filter(Boolean).join(', ') || j.display_name || null; }catch(e){return null;} }
 
 // Camada do fornecedor: hoje Open-Meteo; depois pode ser substituída pela TWC.
