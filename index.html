@@ -35,7 +35,7 @@ input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(15,110,168,.12)}
 button{background:var(--navy);color:white;border:0;border-radius:10px;padding:0 18px;font-size:16px;font-weight:700;cursor:pointer}
 button:disabled{opacity:.55;cursor:not-allowed}
 .hint{font-size:12px;color:var(--muted);margin-top:7px}
-.suggest{position:absolute;left:0;right:0;top:78px;background:white;border:1px solid var(--line);border-radius:10px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.14);display:none;z-index:20}
+.suggest{position:absolute;left:0;right:0;top:78px;background:white;border:1px solid var(--line);border-radius:10px;overflow-x:hidden;overflow-y:auto;max-height:360px;box-shadow:0 10px 30px rgba(0,0,0,.14);display:none;z-index:20}
 .suggest div{padding:11px 12px;border-bottom:1px solid #eef3f7;cursor:pointer;font-size:14px}
 .suggest div:last-child{border-bottom:0}.suggest div:hover{background:#f0f6fb}
 .status{display:none;padding:12px;border-radius:10px;margin-top:10px;font-size:14px}
@@ -156,34 +156,57 @@ function normalizeNominatimPlace(x){
   return { latitude:Number(x.lat), longitude:Number(x.lon), label:parts.join(', ') || x.display_name, source:'nominatim' };
 }
 async function openMeteoPlaceSearch(q){
-  const url='https://geocoding-api.open-meteo.com/v1/search?name='+encodeURIComponent(q)+'&count=7&language=pt&format=json';
+  const url='https://geocoding-api.open-meteo.com/v1/search?name='+encodeURIComponent(q)+'&count=20&language=pt&format=json';
   const r=await fetch(url); if(!r.ok) throw new Error('Falha na busca de cidades');
   const j=await r.json(); return (j.results||[]).map(normalizeOpenMeteoPlace);
 }
 async function nominatimPlaceSearch(q){
-  const url='https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=7&countrycodes=br&accept-language=pt-BR&q='+encodeURIComponent(q);
+  const url='https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=20&countrycodes=br&accept-language=pt-BR&q='+encodeURIComponent(q);
   const r=await fetch(url,{headers:{'Accept':'application/json'}}); if(!r.ok) return [];
   const j=await r.json(); return (j||[]).map(normalizeNominatimPlace).filter(x=>Number.isFinite(x.latitude)&&Number.isFinite(x.longitude));
 }
 function searchTokens(s){
   return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()
-    .replace(/[^a-z0-9]+/g,' ').trim().split(/\s+/).filter(t=>t.length>2 && t!=='brasil');
+    .replace(/[^a-z0-9]+/g,' ').trim().split(/\s+/).filter(t=>t.length>1 && t!=='brasil' && t!=='br');
 }
 function labelMatchesQuery(label,q){
   const hay=searchTokens(label); const needle=searchTokens(q);
   return needle.length>0 && needle.every(t=>hay.includes(t));
 }
+function locationKey(x){
+  const label=String(x.label||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
+  return label+'|'+Number(x.latitude).toFixed(3)+'|'+Number(x.longitude).toFixed(3);
+}
+function locationRank(x,q){
+  const label=String(x.label||'');
+  const nq=searchTokens(q).join(' ');
+  const nl=searchTokens(label).join(' ');
+  let score=0;
+  if(labelMatchesQuery(label,q)) score+=100;
+  if(nl.startsWith(nq)) score+=40;
+  if(/,\s*BR$/i.test(label)) score+=20;
+  if(x.source==='nominatim') score+=2; // ajuda bairros/distritos sem eliminar cidades
+  return score;
+}
 async function locationSearch(q){
-  let primary=[];
-  try{ primary=await openMeteoPlaceSearch(q); }catch(e){}
-  // Se o geocodificador de cidades trouxer algo realmente compatível com a busca,
-  // usamos o resultado. Caso contrário (ex.: bairro Campo Belo em São Paulo),
-  // fazemos fallback para OpenStreetMap/Nominatim.
-  if(primary.length && primary.some(x=>labelMatchesQuery(x.label,q))) return primary;
-  try{
-    const fallback=await nominatimPlaceSearch(q);
-    return fallback.length ? fallback : primary;
-  }catch(e){ return primary; }
+  // Pesquisa SEMPRE nas duas fontes. Assim cidades homônimas (ex.: Bom Jesus)
+  // e bairros entram juntos na lista, em vez de uma fonte bloquear a outra.
+  const [om, nom] = await Promise.all([
+    openMeteoPlaceSearch(q).catch(()=>[]),
+    nominatimPlaceSearch(q).catch(()=>[])
+  ]);
+  const seen=new Set(), merged=[];
+  for(const x of [...om,...nom]){
+    if(!x || !Number.isFinite(x.latitude) || !Number.isFinite(x.longitude)) continue;
+    const k=locationKey(x);
+    if(seen.has(k)) continue;
+    seen.add(k); merged.push(x);
+  }
+  return merged
+    .map((x,i)=>({x,i,score:locationRank(x,q)}))
+    .sort((a,b)=>b.score-a.score || a.i-b.i)
+    .map(v=>v.x)
+    .slice(0,30);
 }
 function placeLabel(x){ return x.label || ''; }
 function renderSuggestions(items){ const box=$('suggest'); box.innerHTML=''; if(!items.length){ box.style.display='none'; return; } items.forEach(x=>{ const d=document.createElement('div'); d.textContent=placeLabel(x); d.onclick=()=>{ selected={lat:x.latitude,lon:x.longitude,label:placeLabel(x)}; $('q').value=selected.label; box.style.display='none'; run(selected); }; box.appendChild(d); }); box.style.display='block'; }
