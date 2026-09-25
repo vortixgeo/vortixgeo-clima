@@ -35,7 +35,7 @@ input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(15,110,168,.12)}
 button{background:var(--navy);color:white;border:0;border-radius:10px;padding:0 18px;font-size:16px;font-weight:700;cursor:pointer}
 button:disabled{opacity:.55;cursor:not-allowed}
 .hint{font-size:12px;color:var(--muted);margin-top:7px}
-.suggest{position:absolute;left:0;right:0;top:78px;background:white;border:1px solid var(--line);border-radius:10px;overflow-x:hidden;overflow-y:auto;max-height:560px;box-shadow:0 10px 30px rgba(0,0,0,.14);display:none;z-index:20}
+.suggest{position:absolute;left:0;right:0;top:78px;background:white;border:1px solid var(--line);border-radius:10px;overflow-x:hidden;overflow-y:auto;height:min(500px,calc(100vh - 430px));min-height:360px;max-height:500px;box-shadow:0 10px 30px rgba(0,0,0,.14);display:none;z-index:20}
 .suggest div{padding:11px 12px;border-bottom:1px solid #eef3f7;cursor:pointer;font-size:14px}
 .suggest div:last-child{border-bottom:0}.suggest div:hover{background:#f0f6fb}
 .status{display:none;padding:12px;border-radius:10px;margin-top:10px;font-size:14px}
@@ -76,7 +76,7 @@ tr:last-child td{border-bottom:0}
 .footer-note{font-size:11px;color:var(--muted);margin-top:12px;line-height:1.5}
 .exportbar{display:flex;justify-content:flex-end;margin:10px 0 14px}.export-btn{height:42px;padding:0 16px;background:var(--green);display:inline-flex;align-items:center;gap:8px}.export-btn:hover{filter:brightness(.96)}
 @media(max-width:700px){.exportbar{justify-content:stretch}.export-btn{width:100%;justify-content:center;margin-top:0}.location-actions{justify-content:stretch!important}.location-actions .export-btn{width:100%;justify-content:center}}.loader{display:none;text-align:center;padding:28px;color:var(--muted)}.loader.show{display:block}
-@media(max-width:700px){header{position:static}.row{display:block}button{width:100%;height:46px;margin-top:8px}.criteria-link{width:auto;height:auto;margin:0}.suggest{top:78px;max-height:420px}.summary{grid-template-columns:repeat(2,1fr)}main{margin-top:12px}th,td{padding:9px 8px;font-size:12px}}
+@media(max-width:700px){header{position:static}.row{display:block}button{width:100%;height:46px;margin-top:8px}.criteria-link{width:auto;height:auto;margin:0}.suggest{top:78px;height:min(360px,calc(100vh - 330px));min-height:260px;max-height:360px}.summary{grid-template-columns:repeat(2,1fr)}main{margin-top:12px}th,td{padding:9px 8px;font-size:12px}}
 </style>
 </head>
 <body>
@@ -138,36 +138,54 @@ function intOrDash(v){ return num(v)===null ? '—' : Math.round(Number(v)).toLo
 function isoDateInZone(date, tz='America/Sao_Paulo'){ return new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).format(date); }
 function issuedAt(){ return new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date()); }
 
-function normalizeOpenMeteoPlace(x){
-  return {
-    latitude:Number(x.latitude), longitude:Number(x.longitude),
-    label:[x.name,x.admin1,x.country_code].filter(Boolean).join(', '),
-    source:'open-meteo', placeType:'city'
-  };
-}
-function normalizeNominatimPlace(x){
+function normalizeNominatimPlace(x, forcedType=null){
   const a=x.address||{};
-  const name=a.suburb||a.neighbourhood||a.quarter||a.city_district||a.city||a.town||a.village||x.name||String(x.display_name||'').split(',')[0];
-  const city=a.city||a.town||a.village||a.municipality||a.city_district;
+  const rawType=String(x.type||x.addresstype||'').toLowerCase();
+  const placeType = forcedType || (
+    ['city','town','municipality'].includes(rawType) ? 'city' :
+    ['suburb','neighbourhood','quarter','city_district','borough'].includes(rawType) ? 'neighborhood' : 'other'
+  );
+
+  let name;
+  if(placeType==='city'){
+    name=a.city||a.town||a.municipality||x.name||String(x.display_name||'').split(',')[0];
+  }else{
+    name=a.suburb||a.neighbourhood||a.quarter||a.city_district||x.name||String(x.display_name||'').split(',')[0];
+  }
+
+  const city=a.city||a.town||a.municipality||a.village||a.city_district;
   const state=a.state||a.region;
   const country=a.country_code ? String(a.country_code).toUpperCase() : a.country;
   const parts=[];
-  for(const part of [name, city && city!==name ? city : null, state, country]) if(part && !parts.includes(part)) parts.push(part);
-  const rawType=String(x.type||x.addresstype||'').toLowerCase();
-  const placeType = ['city','town','village','municipality'].includes(rawType) ? 'city' :
-    ['suburb','neighbourhood','quarter','city_district','borough'].includes(rawType) ? 'neighborhood' : 'other';
-  return { latitude:Number(x.lat), longitude:Number(x.lon), label:parts.join(', ') || x.display_name, source:'nominatim', placeType };
+  for(const part of [name, placeType!=='city' && city && city!==name ? city : null, state, country]){
+    if(part && !parts.includes(part)) parts.push(part);
+  }
+  return {
+    latitude:Number(x.lat), longitude:Number(x.lon),
+    label:parts.join(', ') || x.display_name,
+    source:'nominatim', placeType
+  };
 }
-async function openMeteoPlaceSearch(q){
-  const url='https://geocoding-api.open-meteo.com/v1/search?name='+encodeURIComponent(q)+'&count=100&language=pt&format=json&countryCode=BR';
-  const r=await fetch(url); if(!r.ok) throw new Error('Falha na busca de cidades');
-  const j=await r.json(); return (j.results||[]).map(normalizeOpenMeteoPlace);
-}
-async function nominatimPlaceSearch(q){
-  const url='https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=20&countrycodes=br&accept-language=pt-BR&q='+encodeURIComponent(q);
+
+async function nominatimCitySearch(q){
+  // Somente resultados classificados pelo Nominatim como cidade.
+  // Evita tratar povoado/localidade como município.
+  const url='https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=40&countrycodes=br&featureType=city&accept-language=pt-BR&q='+encodeURIComponent(q);
   const r=await fetch(url,{headers:{'Accept':'application/json'}}); if(!r.ok) return [];
-  const j=await r.json(); return (j||[]).map(normalizeNominatimPlace).filter(x=>Number.isFinite(x.latitude)&&Number.isFinite(x.longitude));
+  const j=await r.json();
+  return (j||[]).map(x=>normalizeNominatimPlace(x,'city')).filter(x=>Number.isFinite(x.latitude)&&Number.isFinite(x.longitude));
 }
+
+async function nominatimNeighborhoodSearch(q){
+  // Busca secundária: bairros/localidades. Só entra depois das cidades.
+  const url='https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=40&countrycodes=br&featureType=settlement&accept-language=pt-BR&q='+encodeURIComponent(q);
+  const r=await fetch(url,{headers:{'Accept':'application/json'}}); if(!r.ok) return [];
+  const j=await r.json();
+  return (j||[])
+    .map(x=>normalizeNominatimPlace(x))
+    .filter(x=>x.placeType==='neighborhood' && Number.isFinite(x.latitude)&&Number.isFinite(x.longitude));
+}
+
 function searchTokens(s){
   return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()
     .replace(/[^a-z0-9]+/g,' ').trim().split(/\s+/).filter(t=>t.length>1 && t!=='brasil' && t!=='br');
@@ -176,9 +194,13 @@ function labelMatchesQuery(label,q){
   const hay=searchTokens(label); const needle=searchTokens(q);
   return needle.length>0 && needle.every(t=>hay.includes(t));
 }
+function normalizedLabel(label){
+  return String(label||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
+}
 function locationKey(x){
-  const label=String(x.label||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
-  return label+'|'+Number(x.latitude).toFixed(3)+'|'+Number(x.longitude).toFixed(3);
+  // Para cidades, elimina duplicações ponto/limite do mesmo município.
+  if(x.placeType==='city') return 'city|'+normalizedLabel(x.label);
+  return x.placeType+'|'+normalizedLabel(x.label)+'|'+Number(x.latitude).toFixed(3)+'|'+Number(x.longitude).toFixed(3);
 }
 function locationRank(x,q){
   const label=String(x.label||'');
@@ -186,7 +208,6 @@ function locationRank(x,q){
   const nl=searchTokens(label).join(' ');
   const primary=searchTokens(label.split(',')[0]).join(' ');
   let score=0;
-  // Regra de prioridade: cidade primeiro, depois bairro, depois outros lugares.
   if(x.placeType==='city') score+=1000;
   else if(x.placeType==='neighborhood') score+=500;
   else score+=100;
@@ -194,30 +215,30 @@ function locationRank(x,q){
   if(labelMatchesQuery(label,q)) score+=100;
   if(nl.startsWith(nq)) score+=40;
   if(/,\s*BR$/i.test(label)) score+=30;
-  if(x.source==='open-meteo') score+=5;
-  if(x.source==='nominatim') score+=2;
   return score;
 }
 async function locationSearch(q){
-  // Pesquisa SEMPRE nas duas fontes. Assim cidades homônimas (ex.: Bom Jesus)
-  // e bairros entram juntos na lista, em vez de uma fonte bloquear a outra.
-  const [om, nom] = await Promise.all([
-    openMeteoPlaceSearch(q).catch(()=>[]),
-    nominatimPlaceSearch(q).catch(()=>[])
+  // Regra: primeiro cidades verdadeiras; depois bairros.
+  const [cities, neighborhoods] = await Promise.all([
+    nominatimCitySearch(q).catch(()=>[]),
+    nominatimNeighborhoodSearch(q).catch(()=>[])
   ]);
+
   const seen=new Set(), merged=[];
-  for(const x of [...om,...nom]){
+  for(const x of [...cities,...neighborhoods]){
     if(!x || !Number.isFinite(x.latitude) || !Number.isFinite(x.longitude)) continue;
     const k=locationKey(x);
     if(seen.has(k)) continue;
     seen.add(k); merged.push(x);
   }
+
   return merged
     .map((x,i)=>({x,i,score:locationRank(x,q)}))
     .sort((a,b)=>b.score-a.score || a.i-b.i)
     .map(v=>v.x)
     .slice(0,100);
 }
+
 function placeLabel(x){ return x.label || ''; }
 function renderSuggestions(items){ const box=$('suggest'); box.innerHTML=''; if(!items.length){ box.style.display='none'; return; } items.forEach(x=>{ const d=document.createElement('div'); d.textContent=placeLabel(x); d.onclick=()=>{ selected={lat:x.latitude,lon:x.longitude,label:placeLabel(x)}; $('q').value=selected.label; box.style.display='none'; run(selected); }; box.appendChild(d); }); box.style.display='block'; }
 $('q').addEventListener('input',()=>{ selected=null; hideStatus(); clearTimeout(debounceTimer); const v=$('q').value.trim(); if(parseCoords(v)||v.length<3){$('suggest').style.display='none'; return;} debounceTimer=setTimeout(async()=>{ try{ renderSuggestions(await locationSearch(v)); }catch(e){ $('suggest').style.display='none'; } },500); });
