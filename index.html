@@ -84,8 +84,8 @@ tr:last-child td{border-bottom:0}
 <main>
   <section class="panel">
     <label for="q">Digite uma cidade, bairro ou coordenada</label>
-    <div class="searchwrap"><div class="row"><input id="q" autocomplete="off" placeholder="Ex.: Cravinhos, SP ou -21.34, -47.73"/><button id="go">Consultar</button></div><div id="suggest" class="suggest"></div></div>
-    <div class="hint">Comece a digitar a cidade ou bairro e selecione uma sugestão, ou cole latitude e longitude do Google Maps.</div>
+    <div class="searchwrap"><div class="row"><input id="q" autocomplete="off" placeholder="Ex.: Bom Jesus | Bom Jesus, RS | São Paulo, Campo Belo"/><button id="go">Consultar</button></div><div id="suggest" class="suggest"></div></div>
+    <div class="hint">Digite primeiro a cidade. Para bairro, use Cidade, Bairro (ex.: São Paulo, Campo Belo). Para filtrar por estado, use Cidade, UF (ex.: Bom Jesus, RS).</div>
     <div id="status" class="status"></div>
   </section>
   <section id="location" class="card location"><div id="locTitle" class="loc-title"></div><div id="locSub" class="loc-sub"></div><div class="location-actions"><button id="exportBtn" class="export-btn" type="button" onclick="exportExcel()" disabled>⬇ Exportar para Excel</button></div></section>
@@ -203,47 +203,90 @@ async function nominatimRawSearch(q){
   return await r.json();
 }
 
-function locationKey(x){
-  return x.placeType+'|'+normalizeText(x.label);
-}
-function locationRank(x,q){
-  const qn=normalizeText(q), nn=normalizeText(x.name||String(x.label||'').split(',')[0]);
-  let score=x.placeType==='city'?1000:500;
-  if(nn===qn) score+=400;
-  else if(nn.startsWith(qn)) score+=250;
-  else if(nn.includes(qn)) score+=150;
-  return score;
-}
-async function locationSearch(q){
-  const query=normalizeText(q);
-  const [municipalities, raw] = await Promise.all([
-    loadBrazilMunicipalities().catch(()=>[]),
-    nominatimRawSearch(q).catch(()=>[])
-  ]);
+const BRAZIL_STATES = [
+  ['AC','Acre'],['AL','Alagoas'],['AP','Amapá'],['AM','Amazonas'],['BA','Bahia'],['CE','Ceará'],
+  ['DF','Distrito Federal'],['ES','Espírito Santo'],['GO','Goiás'],['MA','Maranhão'],['MT','Mato Grosso'],
+  ['MS','Mato Grosso do Sul'],['MG','Minas Gerais'],['PA','Pará'],['PB','Paraíba'],['PR','Paraná'],
+  ['PE','Pernambuco'],['PI','Piauí'],['RJ','Rio de Janeiro'],['RN','Rio Grande do Norte'],
+  ['RS','Rio Grande do Sul'],['RO','Rondônia'],['RR','Roraima'],['SC','Santa Catarina'],
+  ['SP','São Paulo'],['SE','Sergipe'],['TO','Tocantins']
+];
+const STATE_LOOKUP = new Map(BRAZIL_STATES.flatMap(([uf,name])=>[
+  [normalizeText(uf),{uf,name}], [normalizeText(name),{uf,name}]
+]));
 
-  // Fonte oficial para cidades: somente municípios do IBGE.
-  const cities=(municipalities||[])
-    .filter(x=>normalizeText(x.name).includes(query));
+function parseLocationQuery(q){
+  const parts=String(q||'').split(',').map(x=>x.trim()).filter(Boolean);
+  return {
+    cityTerm:parts[0]||'',
+    qualifier:parts[1]||'',
+    extra:parts.slice(2).join(', ')
+  };
+}
+function locationKey(x){ return x.placeType+'|'+normalizeText(x.label); }
+function municipalityMatches(m,term){
+  const q=normalizeText(term), n=normalizeText(m.name);
+  return !!q && (n===q || n.startsWith(q) || n.includes(q));
+}
+function municipalityRank(m,term){
+  const q=normalizeText(term), n=normalizeText(m.name);
+  if(n===q) return 300;
+  if(n.startsWith(q)) return 200;
+  if(n.includes(q)) return 100;
+  return 0;
+}
+function parentCityNameFromNominatim(x){
+  const a=x.address||{};
+  return a.city||a.town||a.municipality||a.village||a.county||'';
+}
 
-  // Nominatim fica restrito a bairros urbanos. Nunca promove bairro/localidade a cidade.
-  const neighborhoods=(raw||[])
-    .filter(x=>ownNameMatchesQuery(x,q))
+async function searchNeighborhoodsInCity(city, neighborhoodTerm){
+  if(!city || !neighborhoodTerm) return [];
+  const q=[neighborhoodTerm,city.name,city.state,'Brasil'].filter(Boolean).join(', ');
+  const raw=await nominatimRawSearch(q).catch(()=>[]);
+  const cityNorm=normalizeText(city.name);
+  return (raw||[])
+    .filter(x=>ownNameMatchesQuery(x,neighborhoodTerm))
+    .filter(x=>normalizeText(parentCityNameFromNominatim(x))===cityNorm)
     .map(normalizeNominatimPlace)
     .filter(x=>x.placeType==='neighborhood' && Number.isFinite(x.latitude) && Number.isFinite(x.longitude));
+}
 
-  const combined=[...cities,...neighborhoods];
+async function locationSearch(q){
+  const {cityTerm,qualifier}=parseLocationQuery(q);
+  if(!cityTerm) return [];
+  const municipalities=await loadBrazilMunicipalities().catch(()=>[]);
+
+  let cities=(municipalities||[])
+    .filter(m=>municipalityMatches(m,cityTerm))
+    .sort((a,b)=>municipalityRank(b,cityTerm)-municipalityRank(a,cityTerm) || a.name.localeCompare(b.name,'pt-BR'));
+
+  // REGRA PRINCIPAL: sem vírgula, a busca é SOMENTE de cidades/municípios.
+  if(!qualifier) return cities.slice(0,100);
+
+  // Se o termo após a vírgula for UF/estado, ele refina SOMENTE a cidade.
+  const state=STATE_LOOKUP.get(normalizeText(qualifier));
+  if(state){
+    return cities.filter(m=>m.stateCode===state.uf || normalizeText(m.state)===normalizeText(state.name)).slice(0,100);
+  }
+
+  // Caso contrário, a sintaxe é "Cidade, Bairro".
+  // Primeiro resolve a cidade; só então procura bairros DENTRO dela.
+  // Para evitar misturar cidades homônimas, bairros só são buscados quando
+  // há uma cidade exata ou uma única cidade compatível.
+  const exactCities=cities.filter(m=>normalizeText(m.name)===normalizeText(cityTerm));
+  const targetCities=exactCities.length ? exactCities : (cities.length===1 ? cities : []);
+  if(!targetCities.length) return cities.slice(0,100);
+
+  const neighborhoodGroups=await Promise.all(targetCities.slice(0,10).map(c=>searchNeighborhoodsInCity(c,qualifier)));
+  const neighborhoods=neighborhoodGroups.flat();
   const seen=new Set(), unique=[];
-  for(const x of combined){
+  for(const x of neighborhoods){
     const k=locationKey(x);
     if(seen.has(k)) continue;
     seen.add(k); unique.push(x);
   }
-
-  return unique
-    .map((x,i)=>({x,i,score:locationRank(x,q)}))
-    .sort((a,b)=>b.score-a.score || a.i-b.i)
-    .map(v=>v.x)
-    .slice(0,100);
+  return unique.slice(0,100);
 }
 
 async function geocodeMunicipality(x){
