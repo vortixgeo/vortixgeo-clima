@@ -152,7 +152,7 @@ function normalizeOpenMeteo(j){
     rain_prob_pct:num(h.precipitation_probability?.[i]), wind_kmh:num(h.wind_speed_10m?.[i]), wind_dir_deg:num(h.wind_direction_10m?.[i]),
     gust_kmh:num(h.wind_gusts_10m?.[i]), uv:num(h.uv_index?.[i])
   }));
-  const byDate=hourly.reduce((acc,x)=>(acc[x.date]??=[]).push(x),acc);
+  const byDate=hourly.reduce((acc,x)=>{ (acc[x.date]??=[]).push(x); return acc; },{});
   const daily=(d.time||[]).map((date,i)=>{
     const hs=byDate[date]||[];
     const rhVals=hs.map(x=>x.rh_pct).filter(v=>v!==null);
