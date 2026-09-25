@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<title>VortixGeo | Consulta Climática</title>
+<meta name="theme-color" content="#0b3a66"/>
+<style>
+:root{
+  --navy:#0b3a66; --blue:#0f6ea8; --cyan:#38a7c8; --bg:#f4f7fa;
+  --card:#ffffff; --text:#17324d; --muted:#6b7f91; --line:#dfe7ee;
+  --green:#187a4d; --orange:#c56a12; --red:#b33a3a;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text)}
+header{
+  background:linear-gradient(135deg,var(--navy),var(--blue));
+  color:#fff;padding:20px 16px 18px;position:sticky;top:0;z-index:5;
+  box-shadow:0 2px 12px rgba(0,0,0,.12)
+}
+.brand{max-width:980px;margin:auto}
+.brand h1{font-size:21px;margin:0 0 4px}
+.brand p{margin:0;opacity:.9;font-size:13px}
+main{max-width:980px;margin:18px auto;padding:0 12px 40px}
+.panel,.card{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 4px 18px rgba(25,55,80,.06)}
+.panel{padding:14px;margin-bottom:14px}
+.searchwrap{position:relative}
+label{font-size:13px;font-weight:700;display:block;margin-bottom:6px}
+.row{display:flex;gap:8px}
+input{
+  width:100%;font-size:17px;padding:13px 14px;border:1px solid #bdcbd7;border-radius:10px;outline:none;
+}
+input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(15,110,168,.12)}
+button{
+  background:var(--navy);color:white;border:0;border-radius:10px;padding:0 18px;font-size:16px;font-weight:700;cursor:pointer
+}
+button:disabled{opacity:.55;cursor:not-allowed}
+.hint{font-size:12px;color:var(--muted);margin-top:7px}
+.suggest{
+  position:absolute;left:0;right:0;top:78px;background:white;border:1px solid var(--line);
+  border-radius:10px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.14);display:none;z-index:20
+}
+.suggest div{padding:11px 12px;border-bottom:1px solid #eef3f7;cursor:pointer;font-size:14px}
+.suggest div:last-child{border-bottom:0}
+.suggest div:hover{background:#f0f6fb}
+.status{display:none;padding:12px;border-radius:10px;margin-top:10px;font-size:14px}
+.status.show{display:block}.status.err{background:#fff0f0;color:#8a2626}.status.ok{background:#edf8f3;color:#145b3b}
+.location{display:none;margin-bottom:14px;padding:14px}
+.location.show{display:block}
+.loc-title{font-size:18px;font-weight:800;margin-bottom:4px}
+.loc-sub{font-size:13px;color:var(--muted);line-height:1.5}
+.section{margin:18px 0 10px}
+.section h2{font-size:18px;margin:0 0 4px}
+.section p{margin:0;color:var(--muted);font-size:13px}
+.summary{
+  display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:10px 0
+}
+.kpi{background:#fff;border:1px solid var(--line);border-radius:12px;padding:11px}
+.kpi b{display:block;font-size:18px}.kpi span{font-size:11px;color:var(--muted)}
+.tablecard{overflow:hidden}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;min-width:720px}
+th,td{padding:10px 9px;border-bottom:1px solid #edf2f6;text-align:right;font-size:13px;white-space:nowrap}
+th{background:#edf5fa;color:#37566f;font-size:12px;position:sticky;top:0}
+th:first-child,td:first-child{text-align:left}
+tr:last-child td{border-bottom:0}
+.now{background:#fff8e8}
+.rain{font-weight:700;color:var(--blue)}
+.footer-note{font-size:11px;color:var(--muted);margin-top:12px;line-height:1.5}
+.loader{display:none;text-align:center;padding:28px;color:var(--muted)} .loader.show{display:block}
+@media(max-width:700px){
+  header{position:static}
+  .row{display:block}
+  button{width:100%;height:46px;margin-top:8px}
+  .suggest{top:78px}
+  .summary{grid-template-columns:repeat(2,1fr)}
+  main{margin-top:12px}
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <h1>VortixGeo | Consulta Climática</h1>
+    <p>Consulta rápida por cidade ou coordenada</p>
+  </div>
+</header>
+
+<main>
+  <section class="panel">
+    <label for="q">Digite uma cidade ou coordenada</label>
+    <div class="searchwrap">
+      <div class="row">
+        <input id="q" autocomplete="off" placeholder="Ex.: Cravinhos, SP ou -21.34, -47.73"/>
+        <button id="go">Consultar</button>
+      </div>
+      <div id="suggest" class="suggest"></div>
+    </div>
+    <div class="hint">Comece a digitar a cidade e selecione uma sugestão, ou cole latitude e longitude do Google Maps.</div>
+    <div id="status" class="status"></div>
+  </section>
+
+  <section id="location" class="card location">
+    <div id="locTitle" class="loc-title"></div>
+    <div id="locSub" class="loc-sub"></div>
+  </section>
+
+  <div id="loader" class="loader">Carregando dados meteorológicos…</div>
+  <div id="results"></div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+let selected = null, debounceTimer = null;
+
+function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
+function fmt(n,d=1){ return Number.isFinite(Number(n)) ? Number(n).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d}) : '—'; }
+function dow(dateStr){
+  return new Date(dateStr+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'2-digit'});
+}
+function showStatus(msg,type='ok'){ const el=$('status'); el.textContent=msg; el.className='status show '+type; }
+function hideStatus(){ $('status').className='status'; }
+function parseCoords(s){
+  const m=s.trim().match(/^(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)$/);
+  if(!m) return null;
+  const lat=+m[1], lon=+m[2];
+  if(lat<-90||lat>90||lon<-180||lon>180) return null;
+  return {lat,lon};
+}
+
+async function citySearch(q){
+  const url='https://geocoding-api.open-meteo.com/v1/search?name='+encodeURIComponent(q)+'&count=7&language=pt&format=json';
+  const r=await fetch(url); if(!r.ok) throw new Error('Falha na busca de cidades');
+  const j=await r.json(); return j.results||[];
+}
+function placeLabel(x){
+  return [x.name,x.admin1,x.country_code].filter(Boolean).join(', ');
+}
+function renderSuggestions(items){
+  const box=$('suggest'); box.innerHTML='';
+  if(!items.length){ box.style.display='none'; return; }
+  items.forEach(x=>{
+    const d=document.createElement('div'); d.textContent=placeLabel(x);
+    d.onclick=()=>{ selected={lat:x.latitude,lon:x.longitude,label:placeLabel(x)}; $('q').value=selected.label; box.style.display='none'; run(selected); };
+    box.appendChild(d);
+  });
+  box.style.display='block';
+}
+
+$('q').addEventListener('input',()=>{
+  selected=null; hideStatus(); clearTimeout(debounceTimer);
+  const v=$('q').value.trim();
+  if(parseCoords(v)||v.length<3){$('suggest').style.display='none'; return;}
+  debounceTimer=setTimeout(async()=>{
+    try{ renderSuggestions(await citySearch(v)); }catch(e){ $('suggest').style.display='none'; }
+  },300);
+});
+document.addEventListener('click',e=>{ if(!e.target.closest('.searchwrap')) $('suggest').style.display='none'; });
+$('q').addEventListener('keydown',e=>{ if(e.key==='Enter') submit(); });
+$('go').onclick=submit;
+
+async function submit(){
+  hideStatus();
+  const v=$('q').value.trim();
+  if(!v){showStatus('Digite uma cidade ou coordenada.','err');return;}
+  const c=parseCoords(v);
+  if(c) return run({lat:c.lat,lon:c.lon,label:'Local por coordenada',reverse:true});
+  if(selected) return run(selected);
+  try{
+    const rs=await citySearch(v);
+    if(!rs.length){showStatus('Cidade não encontrada. Digite parte do nome e escolha uma sugestão.','err');return;}
+    const x=rs[0]; selected={lat:x.latitude,lon:x.longitude,label:placeLabel(x)};
+    $('q').value=selected.label; run(selected);
+  }catch(e){showStatus('Não foi possível buscar a cidade agora.','err');}
+}
+
+async function reverseLabel(lat,lon){
+  try{
+    const url=`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}&zoom=10&accept-language=pt-BR`;
+    const r=await fetch(url,{headers:{'Accept':'application/json'}});
+    if(!r.ok) return null;
+    const j=await r.json();
+    const a=j.address||{};
+    const city=a.city||a.town||a.village||a.municipality||a.county;
+    const state=a.state;
+    return [city,state].filter(Boolean).join(', ') || j.display_name || null;
+  }catch(e){return null;}
+}
+
+async function run(loc){
+  $('suggest').style.display='none'; $('results').innerHTML=''; $('location').className='card location';
+  $('loader').className='loader show'; $('go').disabled=true; hideStatus();
+  try{
+    let label=loc.label;
+    if(loc.reverse){ const rev=await reverseLabel(loc.lat,loc.lon); if(rev) label=rev; }
+    const params = new URLSearchParams({
+      latitude:loc.lat, longitude:loc.lon, timezone:'auto', past_days:'2', forecast_days:'8',
+      hourly:'temperature_2m,precipitation,precipitation_probability,wind_speed_10m,wind_gusts_10m',
+      daily:'temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max',
+      wind_speed_unit:'kmh'
+    });
+    const r=await fetch('https://api.open-meteo.com/v1/forecast?'+params.toString());
+    if(!r.ok) throw new Error('Falha ao consultar dados meteorológicos.');
+    const j=await r.json();
+    render(label,loc.lat,loc.lon,j);
+  }catch(e){
+    showStatus(e.message||'Não foi possível realizar a consulta.','err');
+  }finally{
+    $('loader').className='loader'; $('go').disabled=false;
+  }
+}
+
+function daySummary(j,date){
+  const d=j.daily, i=d.time.indexOf(date); if(i<0)return null;
+  return {
+    date, tmin:d.temperature_2m_min[i], tmax:d.temperature_2m_max[i],
+    rain:d.precipitation_sum[i], prob:d.precipitation_probability_max[i],
+    wind:d.wind_speed_10m_max[i], gust:d.wind_gusts_10m_max[i]
+  };
+}
+function hourlyRows(j,date){
+  const h=j.hourly, rows=[];
+  h.time.forEach((t,i)=>{
+    if(t.startsWith(date)) rows.push({
+      time:t.slice(11,16), temp:h.temperature_2m[i], rain:h.precipitation[i],
+      prob:h.precipitation_probability[i], wind:h.wind_speed_10m[i], gust:h.wind_gusts_10m[i]
+    });
+  });
+  return rows;
+}
+function tableDaily(rows){
+  return `<div class="card tablecard"><div class="scroll"><table>
+  <thead><tr><th>Data</th><th>Mín.</th><th>Máx.</th><th>Chuva</th><th>Prob.</th><th>Vento máx.</th><th>Rajada máx.</th></tr></thead>
+  <tbody>${rows.map(x=>`<tr><td>${esc(dow(x.date))}</td><td>${fmt(x.tmin)} °C</td><td>${fmt(x.tmax)} °C</td><td class="rain">${fmt(x.rain)} mm</td><td>${fmt(x.prob,0)}%</td><td>${fmt(x.wind)} km/h</td><td>${fmt(x.gust)} km/h</td></tr>`).join('')}</tbody>
+  </table></div></div>`;
+}
+function tableHourly(rows,date){
+  const now=new Date(), today=new Date(date+'T00:00:00'), isToday=now.toDateString()===today.toDateString();
+  return `<div class="card tablecard"><div class="scroll"><table>
+  <thead><tr><th>Hora</th><th>Temp.</th><th>Chuva</th><th>Prob.</th><th>Vento</th><th>Rajada</th></tr></thead>
+  <tbody>${rows.map(x=>{
+    const hour=Number(x.time.slice(0,2)); const current=isToday && hour===now.getHours();
+    return `<tr class="${current?'now':''}"><td>${esc(x.time)}</td><td>${fmt(x.temp)} °C</td><td class="rain">${fmt(x.rain)} mm</td><td>${fmt(x.prob,0)}%</td><td>${fmt(x.wind)} km/h</td><td>${fmt(x.gust)} km/h</td></tr>`;
+  }).join('')}</tbody></table></div></div>`;
+}
+function render(label,lat,lon,j){
+  $('locTitle').textContent=label;
+  $('locSub').innerHTML=`Coordenada usada: <b>${Number(lat).toFixed(6)}, ${Number(lon).toFixed(6)}</b><br>Fuso horário: ${esc(j.timezone||'local')}`;
+  $('location').className='card location show';
+
+  const dates=j.daily.time;
+  const past=dates.slice(0,2).map(d=>daySummary(j,d));
+  const today=dates[2], tomorrow=dates[3];
+  const future=dates.slice(4,10).map(d=>daySummary(j,d)).filter(Boolean);
+  const st=daySummary(j,today), sh=hourlyRows(j,today), tmh=hourlyRows(j,tomorrow);
+
+  let out='';
+  out+=`<div class="section"><h2>Hoje — por hora</h2><p>${esc(dow(today))}</p></div>`;
+  out+=`<div class="summary">
+    <div class="kpi"><b>${fmt(st.tmin)} °C</b><span>Temperatura mínima</span></div>
+    <div class="kpi"><b>${fmt(st.tmax)} °C</b><span>Temperatura máxima</span></div>
+    <div class="kpi"><b>${fmt(st.rain)} mm</b><span>Chuva no dia</span></div>
+    <div class="kpi"><b>${fmt(st.gust)} km/h</b><span>Rajada máxima</span></div>
+  </div>`;
+  out+=tableHourly(sh,today);
+
+  out+=`<div class="section"><h2>Amanhã — por hora</h2><p>${esc(dow(tomorrow))}</p></div>`;
+  out+=tableHourly(tmh,tomorrow);
+
+  out+=`<div class="section"><h2>Últimos 2 dias</h2><p>Resumo diário</p></div>`;
+  out+=tableDaily(past);
+
+  out+=`<div class="section"><h2>Depois de amanhã até +7 dias</h2><p>Resumo diário</p></div>`;
+  out+=tableDaily(future);
+
+  out+=`<div class="footer-note">Versão piloto para teste de usabilidade em campo. Fonte meteorológica desta versão: Open‑Meteo. A interface foi estruturada para posterior conexão ao backend da The Weather Company (TWC), sem mudar o uso para o usuário final.</div>`;
+  $('results').innerHTML=out;
+}
+</script>
+</body>
+</html>
