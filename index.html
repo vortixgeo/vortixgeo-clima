@@ -85,7 +85,7 @@ tr:last-child td{border-bottom:0}
   <section class="panel">
     <label for="q">Digite uma cidade, bairro ou coordenada</label>
     <div class="searchwrap"><div class="row"><input id="q" autocomplete="off" placeholder="Ex.: Bom Jesus | Bom Jesus, RS | São Paulo, Campo Belo"/><button id="go">Consultar</button></div><div id="suggest" class="suggest"></div></div>
-    <div class="hint">Digite primeiro a cidade. Para bairro, use Cidade, Bairro (ex.: São Paulo, Campo Belo). Para filtrar por estado, use Cidade, UF (ex.: Bom Jesus, RS). <b>Busca v17</b></div>
+    <div class="hint">Digite primeiro a cidade. Para bairro, use Cidade, Bairro (ex.: São Paulo, Campo Belo). Para filtrar por estado, use Cidade, UF (ex.: Bom Jesus, RS). <b>Busca v18</b></div>
     <div id="status" class="status"></div>
   </section>
   <section id="location" class="card location"><div id="locTitle" class="loc-title"></div><div id="locSub" class="loc-sub"></div><div class="location-actions"><button id="exportBtn" class="export-btn" type="button" onclick="exportExcel()" disabled>⬇ Exportar para Excel</button></div></section>
@@ -197,10 +197,40 @@ function normalizeNominatimPlace(x){
   };
 }
 
-async function nominatimRawSearch(q){
-  const url='https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&namedetails=1&limit=50&countrycodes=br&accept-language=pt-BR&q='+encodeURIComponent(q);
+async function nominatimRawSearch(q,brazilOnly=true){
+  const country=brazilOnly?'&countrycodes=br':'';
+  const url='https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&namedetails=1&limit=50&accept-language=pt-BR'+country+'&q='+encodeURIComponent(q);
   const r=await fetch(url,{headers:{'Accept':'application/json'}}); if(!r.ok) return [];
   return await r.json();
+}
+
+function isCityLikeNominatim(x){
+  const t=String(x?.addresstype||x?.type||'').toLowerCase();
+  return ['city','town','municipality','village'].includes(t);
+}
+function normalizeGlobalCity(x){
+  const a=x.address||{};
+  const name=ownPlaceName(x);
+  const state=a.state||a.region||a.province||'';
+  const country=a.country_code ? String(a.country_code).toUpperCase() : (a.country||'');
+  return {
+    latitude:Number(x.lat), longitude:Number(x.lon), name, state, country,
+    source:'nominatim-global', placeType:'city',
+    label:[name,state,country].filter(Boolean).join(', ')
+  };
+}
+async function globalCitySearch(q){
+  const raw=await nominatimRawSearch(q,false).catch(()=>[]);
+  const term=normalizeText(parseLocationQuery(q).cityTerm||q);
+  let rows=(raw||[])
+    .filter(isCityLikeNominatim)
+    .filter(x=>{ const n=normalizeText(ownPlaceName(x)); return n===term || n.startsWith(term); })
+    .map(normalizeGlobalCity)
+    .filter(x=>Number.isFinite(x.latitude)&&Number.isFinite(x.longitude));
+  const exact=rows.filter(x=>normalizeText(x.name)===term);
+  if(exact.length) rows=exact;
+  const seen=new Set();
+  return rows.filter(x=>{ const k=normalizeText(x.label); if(seen.has(k)) return false; seen.add(k); return true; }).slice(0,100);
 }
 
 const BRAZIL_STATES = [
@@ -265,22 +295,29 @@ async function locationSearch(q){
     .filter(m=>municipalityMatches(m,cityTerm))
     .sort((a,b)=>municipalityRank(b,cityTerm)-municipalityRank(a,cityTerm) || a.name.localeCompare(b.name,'pt-BR'));
 
-  // REGRA PRINCIPAL: sem vírgula, a busca é SOMENTE de municípios oficiais do IBGE.
-  // Se existir correspondência EXATA (ex.: "Bom Jesus"), mostra APENAS municípios
-  // cujo nome oficial seja exatamente esse. Nunca mistura bairros/localidades e
-  // nunca inclui nomes maiores como "Bom Jesus do Sul".
-  if(!qualifier) return (exactCities.length ? exactCities : cities).slice(0,100);
+  // SEM VÍRGULA: somente cidades. Brasil usa municípios oficiais do IBGE;
+  // se não houver município brasileiro compatível, cai para busca internacional
+  // de cidades (Miami, Ushuaia, Londres etc.). Bairros nunca entram aqui.
+  if(!qualifier){
+    if(exactCities.length) return exactCities.slice(0,100);
+    if(cities.length) return cities.slice(0,100);
+    return await globalCitySearch(cityTerm);
+  }
 
-  // Se o termo após a vírgula for UF/estado, ele refina SOMENTE a cidade.
+  // Se o termo após a vírgula for UF/estado brasileiro, refina SOMENTE a cidade.
   const state=STATE_LOOKUP.get(normalizeText(qualifier));
   if(state){
     return cities.filter(m=>m.stateCode===state.uf || normalizeText(m.state)===normalizeText(state.name)).slice(0,100);
   }
 
-  // Caso contrário, a sintaxe é "Cidade, Bairro".
+  // Se não existe cidade brasileira compatível, interpreta como cidade internacional
+  // com estado/província/país (ex.: Miami, Florida). Continua sem bairros.
+  if(!cities.length){
+    return await globalCitySearch(q);
+  }
+
+  // Caso contrário, para cidades brasileiras, a sintaxe é "Cidade, Bairro".
   // Primeiro resolve a cidade; só então procura bairros DENTRO dela.
-  // Para evitar misturar cidades homônimas, bairros só são buscados quando
-  // há uma cidade exata ou uma única cidade compatível.
   const exactCityCandidates=cities.filter(m=>normalizeText(m.name)===normalizeText(cityTerm));
   const targetCities=exactCityCandidates.length ? exactCityCandidates : (cities.length===1 ? cities : []);
   if(!targetCities.length) return cities.slice(0,100);
