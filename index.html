@@ -85,7 +85,7 @@ tr:last-child td{border-bottom:0}
   <section class="panel">
     <label for="q">Digite uma cidade, bairro ou coordenada</label>
     <div class="searchwrap"><div class="row"><input id="q" autocomplete="off" placeholder="Ex.: Bom Jesus | Bom Jesus, RS | São Paulo, Campo Belo"/><button id="go">Consultar</button></div><div id="suggest" class="suggest"></div></div>
-    <div class="hint">Digite primeiro a cidade. Para bairro, use Cidade, Bairro (ex.: São Paulo, Campo Belo). Para filtrar por estado, use Cidade, UF (ex.: Bom Jesus, RS).</div>
+    <div class="hint">Digite primeiro a cidade. Para bairro, use Cidade, Bairro (ex.: São Paulo, Campo Belo). Para filtrar por estado, use Cidade, UF (ex.: Bom Jesus, RS). <b>Busca v17</b></div>
     <div id="status" class="status"></div>
   </section>
   <section id="location" class="card location"><div id="locTitle" class="loc-title"></div><div id="locSub" class="loc-sub"></div><div class="location-actions"><button id="exportBtn" class="export-btn" type="button" onclick="exportExcel()" disabled>⬇ Exportar para Excel</button></div></section>
@@ -226,13 +226,12 @@ function parseLocationQuery(q){
 function locationKey(x){ return x.placeType+'|'+normalizeText(x.label); }
 function municipalityMatches(m,term){
   const q=normalizeText(term), n=normalizeText(m.name);
-  return !!q && (n===q || n.startsWith(q) || n.includes(q));
+  return !!q && (n===q || n.startsWith(q));
 }
 function municipalityRank(m,term){
   const q=normalizeText(term), n=normalizeText(m.name);
   if(n===q) return 300;
   if(n.startsWith(q)) return 200;
-  if(n.includes(q)) return 100;
   return 0;
 }
 function parentCityNameFromNominatim(x){
@@ -257,12 +256,20 @@ async function locationSearch(q){
   if(!cityTerm) return [];
   const municipalities=await loadBrazilMunicipalities().catch(()=>[]);
 
+  const cityNorm=normalizeText(cityTerm);
+  const exactCities=(municipalities||[])
+    .filter(m=>normalizeText(m.name)===cityNorm)
+    .sort((a,b)=>a.state.localeCompare(b.state,'pt-BR'));
+
   let cities=(municipalities||[])
     .filter(m=>municipalityMatches(m,cityTerm))
     .sort((a,b)=>municipalityRank(b,cityTerm)-municipalityRank(a,cityTerm) || a.name.localeCompare(b.name,'pt-BR'));
 
-  // REGRA PRINCIPAL: sem vírgula, a busca é SOMENTE de cidades/municípios.
-  if(!qualifier) return cities.slice(0,100);
+  // REGRA PRINCIPAL: sem vírgula, a busca é SOMENTE de municípios oficiais do IBGE.
+  // Se existir correspondência EXATA (ex.: "Bom Jesus"), mostra APENAS municípios
+  // cujo nome oficial seja exatamente esse. Nunca mistura bairros/localidades e
+  // nunca inclui nomes maiores como "Bom Jesus do Sul".
+  if(!qualifier) return (exactCities.length ? exactCities : cities).slice(0,100);
 
   // Se o termo após a vírgula for UF/estado, ele refina SOMENTE a cidade.
   const state=STATE_LOOKUP.get(normalizeText(qualifier));
@@ -274,8 +281,8 @@ async function locationSearch(q){
   // Primeiro resolve a cidade; só então procura bairros DENTRO dela.
   // Para evitar misturar cidades homônimas, bairros só são buscados quando
   // há uma cidade exata ou uma única cidade compatível.
-  const exactCities=cities.filter(m=>normalizeText(m.name)===normalizeText(cityTerm));
-  const targetCities=exactCities.length ? exactCities : (cities.length===1 ? cities : []);
+  const exactCityCandidates=cities.filter(m=>normalizeText(m.name)===normalizeText(cityTerm));
+  const targetCities=exactCityCandidates.length ? exactCityCandidates : (cities.length===1 ? cities : []);
   if(!targetCities.length) return cities.slice(0,100);
 
   const neighborhoodGroups=await Promise.all(targetCities.slice(0,10).map(c=>searchNeighborhoodsInCity(c,qualifier)));
