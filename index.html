@@ -75,6 +75,7 @@ tr:last-child td{border-bottom:0}
 .now-tag{font-size:10px;color:var(--navy);font-weight:700;margin-left:5px;text-transform:lowercase}
 .obs-tag{font-size:10px;color:var(--muted);font-weight:700;margin-left:5px;text-transform:lowercase}
 .obs-row td{color:#5d7183}
+.gust-weak{color:#9AA5B1;font-weight:400}
 .table-note{font-size:12px;color:var(--muted);margin:0 0 8px;line-height:1.4}
 .rain-positive{font-weight:700;color:var(--blue)}.rain-zero{font-weight:400;color:#9AA5B1}
 .cell-attention{background:var(--attention-bg)!important;color:var(--attention-text)!important;font-weight:700}
@@ -563,6 +564,8 @@ function hourlyAlertLabels(x,lv){
   if(lv.uv) labels.push(r.uv.label);
   return [...new Set(labels)];
 }
+const GUST_WEAK_TITLE='Sem rajada significativa: a TWC só informa rajadas a partir de cerca de 25 km/h.';
+function gustCell(v,level){ if(num(v)===null) return `<td class="gust-weak" title="${GUST_WEAK_TITLE}">fraca</td>`; return alertCell(fmt(v),level); }
 function alertCell(content,level,extra=''){ return `<td class="${extra} ${cellClass(level)}">${content}</td>`; }
 
 function criteriaTable(){
@@ -575,7 +578,7 @@ function criteriaTable(){
     <tr><td>UV</td><td>—</td><td>≥ 11</td><td>—</td><td>≥ 11</td></tr>
   </tbody></table></div></div>`;
 }
-function legendHtml(){ return `<div class="legend"><span class="legend-item"><span class="swatch attention"></span>Atenção</span><span class="legend-item"><span class="swatch alert"></span>Alerta</span><button class="criteria-link" type="button" onclick="document.getElementById('criteria').classList.toggle('show')">ver critérios</button></div>${criteriaTable()}`; }
+function legendHtml(){ return `<div class="legend"><span class="legend-item"><span class="swatch attention"></span>Atenção</span><span class="legend-item"><span class="swatch alert"></span>Alerta</span><button class="criteria-link" type="button" onclick="document.getElementById('criteria').classList.toggle('show')">ver critérios</button></div><p class="table-note">Rajada <b>fraca</b>: sem rajada significativa. A TWC só informa rajadas a partir de cerca de 25 km/h.</p>${criteriaTable()}`; }
 
 function rainCell(v,level){
   const rounded=displayRuleValue('rain_mm',v);
@@ -598,7 +601,7 @@ function tableDaily(rows, isPast=false){
       <td>${fmt(x.rain_prob_pct,0)}</td>
       <td>${fmt(x.wind_max_kmh)}</td>
       <td>${windDirHtml(x.wind_dir_deg,x.wind_max_kmh)}</td>
-      ${alertCell(fmt(x.gust_kmh),map.gust_kmh)}
+      ${isPast?alertCell(fmt(x.gust_kmh),map.gust_kmh):gustCell(x.gust_kmh,map.gust_kmh)}
       ${alertCell(uvContent,map.uv_max)}
     </tr>`;
   }).join('')}</tbody></table></div></div>`;
@@ -614,7 +617,7 @@ function tableHourly(rows,date){
     const hasAlert=labels.length>0;
     const rowClass=[current?'now':'',(!current&&hasAlert)?'hourly-row-highlight':'',x.observed?'obs-row':''].filter(Boolean).join(' ');
     const tag=current?'<span class="now-tag">agora</span>':(x.observed?'<span class="obs-tag" title="Dado observado (TWC)">obs.</span>':'');
-    return `<tr class="${rowClass}"><td>${esc(x.time)}${tag}</td><td class="badge-text">${hasAlert?'⚠ '+esc(labels.join(' · ')):'—'}</td>${alertCell(fmt(x.temp_c),lv.temp_c)}${alertCell(intOrDash(x.rh_pct),lv.rh_pct)}${x.observed?'<td>—</td>':rainCell(x.rain_mm,lv.rain_mm)}<td>${fmt(x.rain_prob_pct,0)}</td><td>${fmt(x.wind_kmh)}</td><td>${windDirHtml(x.wind_dir_deg,x.wind_kmh)}</td>${alertCell(fmt(x.gust_kmh),lv.gust_kmh)}${alertCell(intOrDash(x.uv),lv.uv)}</tr>`;
+    return `<tr class="${rowClass}"><td>${esc(x.time)}${tag}</td><td class="badge-text">${hasAlert?'⚠ '+esc(labels.join(' · ')):'—'}</td>${alertCell(fmt(x.temp_c),lv.temp_c)}${alertCell(intOrDash(x.rh_pct),lv.rh_pct)}${x.observed?'<td>—</td>':rainCell(x.rain_mm,lv.rain_mm)}<td>${fmt(x.rain_prob_pct,0)}</td><td>${fmt(x.wind_kmh)}</td><td>${windDirHtml(x.wind_dir_deg,x.wind_kmh)}</td>${gustCell(x.gust_kmh,lv.gust_kmh)}${alertCell(intOrDash(x.uv),lv.uv)}</tr>`;
   }).join('')}</tbody></table></div></div>`;
 }
 
@@ -686,6 +689,7 @@ function exportExcel(){
     ['Chuva observada nas últimas 24 h (mm)',data.rainObserved24h],
     ['Chuva ainda prevista para hoje (mm)',todayRow?displayRuleValue('rain_mm',todayRow.rain_mm):null],
     ['Critério de dia','Previsão: 00h às 23h (dia-calendário). Histórico TWC: dia referenciado às 7h.'],
+    ['Rajada em branco','Sem rajada significativa: a TWC só informa rajadas a partir de cerca de 25 km/h.'],
     ['Linha de hoje no resumo diário','Chuva = ainda prevista até 23h; demais campos = observado + previsto.']
   ];
   const wsMeta=XLSX.utils.aoa_to_sheet(meta); wsMeta['!cols']=[{wch:38},{wch:70}]; XLSX.utils.book_append_sheet(wb,wsMeta,'Consulta');
@@ -711,7 +715,7 @@ function render(label,lat,lon,data){
   out+=legendHtml();
   out+=`<div class="section"><h2>Últimos 2 dias</h2><p>Resumo diário observado (TWC). No histórico, o dia da TWC é referenciado às 7h.</p></div>`+tableDaily(past,true);
   out+=`<div class="section"><h2>Hoje — por hora</h2><p>${esc(dow(todayRow.date))}</p></div>`;
-  if(todayRow){ out+=`<div class="summary"><div class="kpi"><b>${fmt(todayRow.temp_min_c)} °C</b><span>Temperatura mínima</span></div><div class="kpi"><b>${fmt(todayRow.temp_max_c)} °C</b><span>Temperatura máxima</span></div><div class="kpi"><b>${data.rainObserved24h===null?'—':fmt(data.rainObserved24h)+' mm'}</b><span>Choveu nas últimas 24 h</span></div><div class="kpi"><b>${fmt(todayRow.rain_mm)} mm</b><span>Ainda previsto para hoje</span></div><div class="kpi"><b>${fmt(todayRow.gust_kmh)} km/h</b><span>Rajada máxima</span></div></div>`; }
+  if(todayRow){ out+=`<div class="summary"><div class="kpi"><b>${fmt(todayRow.temp_min_c)} °C</b><span>Temperatura mínima</span></div><div class="kpi"><b>${fmt(todayRow.temp_max_c)} °C</b><span>Temperatura máxima</span></div><div class="kpi"><b>${data.rainObserved24h===null?'—':fmt(data.rainObserved24h)+' mm'}</b><span>Choveu nas últimas 24 h</span></div><div class="kpi"><b>${fmt(todayRow.rain_mm)} mm</b><span>Ainda previsto para hoje</span></div><div class="kpi"><b>${num(todayRow.gust_kmh)===null?'fraca':fmt(todayRow.gust_kmh)+' km/h'}</b><span>Rajada máxima</span></div></div>`; }
   if(data.hasObserved){ out+=`<p class="table-note">Horas já passadas: dado observado pela TWC (marcadas com <b>obs.</b>). A TWC não publica chuva por hora no observado; o acumulado está no quadro "Choveu nas últimas 24 h".</p>`; }
   out+=tableHourly(todayHourly,todayRow.date);
   out+=`<div class="section"><h2>Amanhã — por hora</h2><p>${esc(dow(tomorrowRow.date))}</p></div>`+tableHourly(tomorrowHourly,tomorrowRow.date);
