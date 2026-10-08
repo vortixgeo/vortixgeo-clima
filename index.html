@@ -43,7 +43,7 @@ button:disabled{opacity:.55;cursor:not-allowed}
 .location{display:none;margin-bottom:14px;padding:14px}.location.show{display:block}.location-actions{display:none;margin-top:12px}.location.show .location-actions{display:flex;justify-content:flex-end}
 .loc-title{font-size:18px;font-weight:800;margin-bottom:4px}.loc-sub{font-size:13px;color:var(--muted);line-height:1.5}
 .section{margin:18px 0 10px}.section h2{font-size:18px;margin:0 0 4px}.section p{margin:0;color:var(--muted);font-size:13px}
-.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:10px 0}
+.summary{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:10px 0}
 .kpi{background:#fff;border:1px solid var(--line);border-radius:12px;padding:11px}.kpi b{display:block;font-size:18px}.kpi span{font-size:11px;color:var(--muted)}
 .issued{font-size:12px;color:var(--muted);margin:0 0 10px}
 .legend{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:10px 0}
@@ -73,6 +73,9 @@ tr:last-child td{border-bottom:0}
 .now td{background:#fff!important}.now td:first-child{border-left:3px solid var(--navy)!important;background:#fff!important}.now td:nth-child(2){background:#fff!important}
 .now .cell-attention,.now .cell-alert{background:#fff!important;color:inherit!important;font-weight:inherit}
 .now-tag{font-size:10px;color:var(--navy);font-weight:700;margin-left:5px;text-transform:lowercase}
+.obs-tag{font-size:10px;color:var(--muted);font-weight:700;margin-left:5px;text-transform:lowercase}
+.obs-row td{color:#5d7183}
+.table-note{font-size:12px;color:var(--muted);margin:0 0 8px;line-height:1.4}
 .rain-positive{font-weight:700;color:var(--blue)}.rain-zero{font-weight:400;color:#9AA5B1}
 .cell-attention{background:var(--attention-bg)!important;color:var(--attention-text)!important;font-weight:700}
 .cell-alert{background:var(--alert-bg)!important;color:var(--alert-text)!important;font-weight:700}
@@ -388,17 +391,20 @@ async function twcFetch(path,loc){
 }
 
 async function fetchWeatherProvider(loc){
-  // 3 produtos TWC: previsão diária, previsão horária e histórico diário.
-  // Tenta 10 dias horários para completar rajada/UR/UV dos próximos dias;
-  // se a chave não tiver esse entitlement, cai automaticamente para 2 dias.
+  // Produtos TWC: previsão diária, previsão horária, histórico diário,
+  // últimas 24 h observadas por hora e condição atual.
+  // Horária: tenta 15 dias, depois 10 dias, depois 2 dias, conforme o que a chave libera.
+  const denied=e=>e && (e.status===401||e.status===403||e.status===404);
   const dailyP=twcFetch('/v3/wx/forecast/daily/10day',loc);
   const histP=twcFetch('/v3/wx/conditions/historical/dailysummary/30day',loc);
-  const hourlyP=twcFetch('/v3/wx/forecast/hourly/10day',loc).catch(e=>{
-    if(e && (e.status===401||e.status===403||e.status===404)) return twcFetch('/v3/wx/forecast/hourly/2day',loc);
-    throw e;
-  });
-  const [daily,hourly,historical]=await Promise.all([dailyP,hourlyP,histP]);
-  return {daily,hourly,historical};
+  const hourlyP=twcFetch('/v3/wx/forecast/hourly/15day',loc)
+    .catch(e=>{ if(denied(e)) return twcFetch('/v3/wx/forecast/hourly/10day',loc); throw e; })
+    .catch(e=>{ if(denied(e)) return twcFetch('/v3/wx/forecast/hourly/2day',loc); throw e; });
+  // Observado é complemento: se falhar, a consulta segue só com a previsão.
+  const obsHourlyP=twcFetch('/v3/wx/conditions/historical/hourly/1day',loc).catch(()=>null);
+  const currentP=twcFetch('/v3/wx/observations/current',loc).catch(()=>null);
+  const [daily,hourly,historical,observedHourly,current]=await Promise.all([dailyP,hourlyP,histP,obsHourlyP,currentP]);
+  return {daily,hourly,historical,observedHourly,current};
 }
 
 function twcDateTime(s){
@@ -419,42 +425,80 @@ function predominantDirection(rows){
 }
 
 // Normalização: toda a interface continua usando o mesmo formato canônico da versão anterior.
+// Dia = dia-calendário local (00h às 23h). Horas já passadas de hoje vêm do observado TWC.
 function normalizeTWC(raw){
   const h=raw.hourly||{}, d=raw.daily||{};
   const hist=Array.isArray(raw.historical)?(raw.historical[0]||{}):(raw.historical||{});
+  const oh=raw.observedHourly||{}, cur=raw.current||{};
 
-  const hourly=(h.validTimeLocal||[]).map((t,i)=>{
+  const forecastHourly=(h.validTimeLocal||[]).map((t,i)=>{
     const dt=twcDateTime(t);
     return {
-      datetime:t, epoch:num(h.validTimeUtc?.[i]), date:dt.date, time:dt.time,
+      datetime:t, epoch:num(h.validTimeUtc?.[i]), date:dt.date, time:dt.time, observed:false,
       temp_c:num(h.temperature?.[i]), rh_pct:num(h.relativeHumidity?.[i]), rain_mm:num(h.qpfRain?.[i]) ?? num(h.qpf?.[i]),
       rain_prob_pct:num(h.precipChance?.[i]), wind_kmh:num(h.windSpeed?.[i]), wind_dir_deg:num(h.windDirection?.[i]),
       gust_kmh:num(h.windGust?.[i]), uv:num(h.uvIndex?.[i])
     };
   });
-  const byDate={};
+  const firstForecastEpoch=forecastHourly.length?forecastHourly[0].epoch:null;
+
+  // Últimas 24 h observadas. A TWC não publica chuva por hora neste produto: fica como —.
+  const observedHourly=(oh.validTimeLocal||[]).map((t,i)=>{
+    const dt=twcDateTime(t);
+    return {
+      datetime:t, epoch:num(oh.validTimeUtc?.[i]), date:dt.date, time:dt.time, observed:true,
+      temp_c:num(oh.temperature?.[i]), rh_pct:num(oh.relativeHumidity?.[i]), rain_mm:null,
+      rain_prob_pct:null, wind_kmh:num(oh.windSpeed?.[i]), wind_dir_deg:num(oh.windDirection?.[i]),
+      gust_kmh:num(oh.windGust?.[i]), uv:num(oh.uvIndex?.[i])
+    };
+  }).filter(x=>x.date && (firstForecastEpoch===null || x.epoch===null || x.epoch<firstForecastEpoch))
+    .sort((a,b)=>(a.epoch??0)-(b.epoch??0));
+
+  // "Hoje" no horário do local consultado: usa a hora da observação atual; senão, a previsão.
+  const curDate=cur.validTimeLocal?twcDateTime(cur.validTimeLocal).date:null;
+  const todayDate=curDate || twcDateTime((d.validTimeLocal||[])[0]).date || forecastHourly[0]?.date || isoDateInZone(new Date());
+
+  const hourly=[...observedHourly.filter(x=>x.date===todayDate),...forecastHourly];
+  const byDate={}, fcByDate={};
   for(const row of hourly){ (byDate[row.date] ||= []).push(row); }
+  for(const row of forecastHourly){ (fcByDate[row.date] ||= []).push(row); }
 
   const forecastDaily=(d.validTimeLocal||[]).map((t,i)=>{
     const date=twcDateTime(t).date;
-    const hs=byDate[date]||[];
+    const hs=byDate[date]||[], fc=fcByDate[date]||[];
+    const isToday=date===todayDate;
     const dp=(d.daypart&&d.daypart[0])||{};
     const dpStart=i*2, dpEnd=dpStart+2;
     const slice=name=>(dp[name]||[]).slice(dpStart,dpEnd);
+    const hourMin=minOrNull(hs.map(x=>x.temp_c)), hourMax=maxOrNull(hs.map(x=>x.temp_c));
+    let tMin, tMax;
+    if(isToday){
+      // Hoje: horas observadas + horas previstas + extremos já registrados na observação atual.
+      const since7=num(cur.temperatureMaxSince7Am);
+      tMax=maxOrNull([hourMax,since7,num(cur.temperature)]) ?? num(d.calendarDayTemperatureMax?.[i]) ?? num(d.temperatureMax?.[i]);
+      tMin=minOrNull([hourMin,num(cur.temperature)]) ?? num(d.calendarDayTemperatureMin?.[i]) ?? num(d.temperatureMin?.[i]);
+    } else {
+      tMax=num(d.calendarDayTemperatureMax?.[i]) ?? num(d.temperatureMax?.[i]) ?? hourMax;
+      tMin=num(d.calendarDayTemperatureMin?.[i]) ?? num(d.temperatureMin?.[i]) ?? hourMin;
+    }
+    // Chuva de 00h a 23h pela soma das horas previstas. Dia futuro incompleto usa o total diário TWC.
+    const hourSum=sumOrNull(fc.map(x=>x.rain_mm));
+    const fullDay=fc.length>=24;
+    const rain=(isToday||fullDay) ? (hourSum ?? num(d.qpfRain?.[i]) ?? num(d.qpf?.[i]))
+                                  : (num(d.qpfRain?.[i]) ?? num(d.qpf?.[i]) ?? hourSum);
     return {
       date,
-      temp_min_c:num(d.temperatureMin?.[i]) ?? minOrNull(hs.map(x=>x.temp_c)),
-      temp_max_c:num(d.temperatureMax?.[i]) ?? maxOrNull(hs.map(x=>x.temp_c)),
+      temp_min_c:tMin, temp_max_c:tMax,
       rh_min_pct:minOrNull(hs.map(x=>x.rh_pct)) ?? minOrNull(slice('relativeHumidity')),
       rh_max_pct:maxOrNull(hs.map(x=>x.rh_pct)) ?? maxOrNull(slice('relativeHumidity')),
-      rain_mm:num(d.qpfRain?.[i]) ?? num(d.qpf?.[i]) ?? sumOrNull(hs.map(x=>x.rain_mm)),
-      rain_prob_pct:maxOrNull(hs.map(x=>x.rain_prob_pct)) ?? maxOrNull(slice('precipChance')),
+      rain_mm:rain,
+      rain_prob_pct:maxOrNull(fc.map(x=>x.rain_prob_pct)) ?? maxOrNull(slice('precipChance')),
       wind_max_kmh:maxOrNull(hs.map(x=>x.wind_kmh)) ?? maxOrNull(slice('windSpeed')),
       wind_dir_deg:predominantDirection(hs) ?? (()=>{ const a=vals(slice('windDirection')); return a.length?a[0]:null; })(),
       gust_kmh:maxOrNull(hs.map(x=>x.gust_kmh)),
       uv_max:maxOrNull(hs.map(x=>x.uv)) ?? maxOrNull(slice('uvIndex'))
     };
-  });
+  }).filter(x=>x.date>=todayDate);
 
   // O resumo histórico de 30 dias da TWC fornece temperatura e precipitação.
   // Campos não publicados nesse produto (UR, probabilidade, vento/rajada e UV) ficam como —.
@@ -466,10 +510,10 @@ function normalizeTWC(raw){
     wind_max_kmh:null, wind_dir_deg:null, gust_kmh:null, uv_max:null
   })).sort((a,b)=>a.date.localeCompare(b.date));
 
-  const todayDate=forecastDaily[0]?.date || hourly[0]?.date || isoDateInZone(new Date());
   const past=historicalDaily.filter(x=>x.date<todayDate).slice(-2);
   const daily=[...past,...forecastDaily];
-  return { timezone:'Horário local TWC', todayDate, hourly, daily };
+  return { timezone:'Horário local TWC', todayDate, hourly, daily,
+           rainObserved24h:num(cur.precip24Hour), hasObserved:observedHourly.some(x=>x.date===todayDate) };
 }
 
 async function run(loc){
@@ -568,8 +612,9 @@ function tableHourly(rows,date){
     const lv=hourlyLevels(x), labels=hourlyAlertLabels(x,lv);
     const current=isCurrentDate && closestEpoch!==null && x.epoch===closestEpoch;
     const hasAlert=labels.length>0;
-    const rowClass=[current?'now':'',(!current&&hasAlert)?'hourly-row-highlight':''].filter(Boolean).join(' ');
-    return `<tr class="${rowClass}"><td>${esc(x.time)}${current?'<span class="now-tag">agora</span>':''}</td><td class="badge-text">${hasAlert?'⚠ '+esc(labels.join(' · ')):'—'}</td>${alertCell(fmt(x.temp_c),lv.temp_c)}${alertCell(intOrDash(x.rh_pct),lv.rh_pct)}${rainCell(x.rain_mm,lv.rain_mm)}<td>${fmt(x.rain_prob_pct,0)}</td><td>${fmt(x.wind_kmh)}</td><td>${windDirHtml(x.wind_dir_deg,x.wind_kmh)}</td>${alertCell(fmt(x.gust_kmh),lv.gust_kmh)}${alertCell(intOrDash(x.uv),lv.uv)}</tr>`;
+    const rowClass=[current?'now':'',(!current&&hasAlert)?'hourly-row-highlight':'',x.observed?'obs-row':''].filter(Boolean).join(' ');
+    const tag=current?'<span class="now-tag">agora</span>':(x.observed?'<span class="obs-tag" title="Dado observado (TWC)">obs.</span>':'');
+    return `<tr class="${rowClass}"><td>${esc(x.time)}${tag}</td><td class="badge-text">${hasAlert?'⚠ '+esc(labels.join(' · ')):'—'}</td>${alertCell(fmt(x.temp_c),lv.temp_c)}${alertCell(intOrDash(x.rh_pct),lv.rh_pct)}${x.observed?'<td>—</td>':rainCell(x.rain_mm,lv.rain_mm)}<td>${fmt(x.rain_prob_pct,0)}</td><td>${fmt(x.wind_kmh)}</td><td>${windDirHtml(x.wind_dir_deg,x.wind_kmh)}</td>${alertCell(fmt(x.gust_kmh),lv.gust_kmh)}${alertCell(intOrDash(x.uv),lv.uv)}</tr>`;
   }).join('')}</tbody></table></div></div>`;
 }
 
@@ -603,6 +648,7 @@ function exportHourlyRows(rows){
     return {
       'Data': x.date,
       'Hora': x.time,
+      'Tipo': x.observed ? 'Observado' : 'Previsto',
       'Destaques': labels.length ? '⚠ '+labels.join(' · ') : '—',
       'Temp. °C': displayRuleValue('temp_c',x.temp_c),
       'UR %': displayRuleValue('rh_pct',x.rh_pct),
@@ -636,9 +682,13 @@ function exportExcel(){
     ['VortixGeo | Consulta Climática',''],
     ['Local',label],['Latitude',Number(lat)],['Longitude',Number(lon)],
     ['Fuso horário',data.timezone||'America/Sao_Paulo'],['Emitido em',issuedAt()+' (horário de Brasília)'],
-    ['Fonte meteorológica','The Weather Company (TWC)']
+    ['Fonte meteorológica','The Weather Company (TWC)'],
+    ['Chuva observada nas últimas 24 h (mm)',data.rainObserved24h],
+    ['Chuva ainda prevista para hoje (mm)',todayRow?displayRuleValue('rain_mm',todayRow.rain_mm):null],
+    ['Critério de dia','Previsão: 00h às 23h (dia-calendário). Histórico TWC: dia referenciado às 7h.'],
+    ['Linha de hoje no resumo diário','Chuva = ainda prevista até 23h; demais campos = observado + previsto.']
   ];
-  const wsMeta=XLSX.utils.aoa_to_sheet(meta); wsMeta['!cols']=[{wch:24},{wch:55}]; XLSX.utils.book_append_sheet(wb,wsMeta,'Consulta');
+  const wsMeta=XLSX.utils.aoa_to_sheet(meta); wsMeta['!cols']=[{wch:38},{wch:70}]; XLSX.utils.book_append_sheet(wb,wsMeta,'Consulta');
   const drows=exportDailyRows([...past,...(todayRow?[todayRow]:[]),...(tomorrowRow?[tomorrowRow]:[]),...future]);
   const wsD=XLSX.utils.json_to_sheet(drows); autoWidth(wsD,drows); XLSX.utils.book_append_sheet(wb,wsD,'Resumo diário');
   const hToday=exportHourlyRows(todayHourly); const wsH1=XLSX.utils.json_to_sheet(hToday); autoWidth(wsH1,hToday); XLSX.utils.book_append_sheet(wb,wsH1,'Hoje por hora');
@@ -659,12 +709,13 @@ function render(label,lat,lon,data){
   let out='';
   out+=`<div class="issued">Previsão emitida em ${esc(issuedAt())} (horário de Brasília)</div>`;
   out+=legendHtml();
-  out+=`<div class="section"><h2>Últimos 2 dias</h2><p>Resumo diário</p></div>`+tableDaily(past,true);
+  out+=`<div class="section"><h2>Últimos 2 dias</h2><p>Resumo diário observado (TWC). No histórico, o dia da TWC é referenciado às 7h.</p></div>`+tableDaily(past,true);
   out+=`<div class="section"><h2>Hoje — por hora</h2><p>${esc(dow(todayRow.date))}</p></div>`;
-  if(todayRow){ out+=`<div class="summary"><div class="kpi"><b>${fmt(todayRow.temp_min_c)} °C</b><span>Temperatura mínima</span></div><div class="kpi"><b>${fmt(todayRow.temp_max_c)} °C</b><span>Temperatura máxima</span></div><div class="kpi"><b>${fmt(todayRow.rain_mm)} mm</b><span>Chuva no dia</span></div><div class="kpi"><b>${fmt(todayRow.gust_kmh)} km/h</b><span>Rajada máxima</span></div></div>`; }
+  if(todayRow){ out+=`<div class="summary"><div class="kpi"><b>${fmt(todayRow.temp_min_c)} °C</b><span>Temperatura mínima</span></div><div class="kpi"><b>${fmt(todayRow.temp_max_c)} °C</b><span>Temperatura máxima</span></div><div class="kpi"><b>${data.rainObserved24h===null?'—':fmt(data.rainObserved24h)+' mm'}</b><span>Choveu nas últimas 24 h</span></div><div class="kpi"><b>${fmt(todayRow.rain_mm)} mm</b><span>Ainda previsto para hoje</span></div><div class="kpi"><b>${fmt(todayRow.gust_kmh)} km/h</b><span>Rajada máxima</span></div></div>`; }
+  if(data.hasObserved){ out+=`<p class="table-note">Horas já passadas: dado observado pela TWC (marcadas com <b>obs.</b>). A TWC não publica chuva por hora no observado; o acumulado está no quadro "Choveu nas últimas 24 h".</p>`; }
   out+=tableHourly(todayHourly,todayRow.date);
   out+=`<div class="section"><h2>Amanhã — por hora</h2><p>${esc(dow(tomorrowRow.date))}</p></div>`+tableHourly(tomorrowHourly,tomorrowRow.date);
-  out+=`<div class="section"><h2>Próximos dias</h2><p>Resumo diário</p></div>`+tableDaily(future,false);
+  out+=`<div class="section"><h2>Próximos dias</h2><p>Resumo diário, de 00h às 23h</p></div>`+tableDaily(future,false);
   out+=`<div class="footer-note">Versão piloto para teste de usabilidade em campo. Fonte meteorológica desta versão: The Weather Company (TWC). Regras, destaques e apresentação preservados; dados indisponíveis em determinado produto TWC aparecem como —.</div>`;
   $('results').innerHTML=out;
 }
