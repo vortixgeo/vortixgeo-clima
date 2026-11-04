@@ -184,9 +184,9 @@ $("#f").addEventListener("submit",async e=>{e.preventDefault();const q=$("#q").v
    const l=(r.results||[]);if(!l.length)throw new Error("Cidade não encontrada. Confira a grafia.");
    if(l.length===1)return go({lat:l[0].latitude,lon:l[0].longitude,nome:`${l[0].name}, ${l[0].admin1||""}`});
    status("Escolha o local:");l.forEach(c=>{const b=document.createElement("button");b.type="button";b.className="chip";b.textContent=`${c.name} · ${c.admin1||""}`;b.onclick=()=>{$("#choices").innerHTML="";go({lat:c.latitude,lon:c.longitude,nome:`${c.name}, ${c.admin1||""}`})};$("#choices").appendChild(b)})}
-  else{status("Buscando o imóvel no SICAR…");const cod=q.toUpperCase();const uf=cod.slice(0,2).toLowerCase();
+  else{status("Buscando o imóvel…");const cod=q.toUpperCase();const uf=cod.slice(0,2).toLowerCase();
    const url=`https://geoserver.car.gov.br/geoserver/sicar/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=sicar:sicar_imoveis_${uf}&maxFeatures=1&outputFormat=application/json&srsName=EPSG:4326&CQL_FILTER=${encodeURIComponent(`cod_imovel='${cod}'`)}`;
-   const j=await (await fetch(url)).json();if(!j.features||!j.features.length)throw new Error("CAR não encontrado no SICAR. Confira o código.");
+   const j=await (await fetch(url)).json();if(!j.features||!j.features.length)throw new Error("CAR não encontrado. Confira o código.");
    const f=j.features[0];const c=centroid(f.geometry);go({lat:c[1],lon:c[0],nome:`CAR ${cod.slice(0,12)}… · ${f.properties.municipio||""}/${(f.properties.uf||uf).toUpperCase()} · ${fmt(f.properties.area,1)} ha`})}
  }catch(err){status(err.message,true)}});
 function centroid(g){const polys=g.type==="MultiPolygon"?g.coordinates:[g.coordinates];let best=null;
@@ -208,8 +208,8 @@ document.querySelectorAll("[data-crop]").forEach(b=>b.addEventListener("click",(
 function paintCrop(){$("#cropname").textContent=S.crop?CROPS[S.crop].nome.toUpperCase():"—";document.querySelectorAll(".crop .seg button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.crop===S.crop))}
 
 /* ---------- dados ---------- */
-async function twc(path,lat,lon){const u=`https://api.weather.com${path}?geocode=${lat.toFixed(3)},${lon.toFixed(3)}&units=m&language=pt-BR&format=json&apiKey=${TWC_KEY}`;const r=await fetch(u);if(!r.ok)throw new Error(`A previsão da TWC não respondeu (HTTP ${r.status}). Se for 401, a chave de teste venceu.`);return r.json()}
-const om=async u=>{const r=await fetch(u);const j=await r.json();if(j.error)throw new Error("Open-Meteo: "+j.reason);return j};
+async function twc(path,lat,lon){const u=`https://api.weather.com${path}?geocode=${lat.toFixed(3)},${lon.toFixed(3)}&units=m&language=pt-BR&format=json&apiKey=${TWC_KEY}`;const r=await fetch(u);if(!r.ok)throw new Error(`A previsão não respondeu (HTTP ${r.status}). Tente novamente mais tarde.`);return r.json()}
+const om=async u=>{const r=await fetch(u);const j=await r.json();if(j.error)throw new Error("Os dados complementares não responderam. Tente novamente mais tarde.");return j};
 async function go(place){S.place=place;store.set("agx-last",place);setTimeout(paintSaved,0);$("#loc").textContent=place.nome+` · ${fmt(place.lat,3)} / ${fmt(place.lon,3)}`;
  const saved=store.get(cropKey());S.crop=saved||null;paintCrop();$("#ask").hidden=!!saved;
  status("Buscando dados da previsão e do histórico… (o histórico do solo e da radiação leva alguns segundos)");$("#view").innerHTML="";S.data=null;
@@ -657,7 +657,7 @@ function pScreen(id,P){const T=PTABLES[id],E=P[id],at=E.at,ev=E.ev,now=ev[at],fo
  legend([["g",`Verde: ${T.ruler[0][2].toLowerCase()}`],["y",`Amarelo: ${T.ruler[1][2].toLowerCase()}`],["r",`Vermelho: ${T.ruler[2][2].toLowerCase()}`]])+
  vtable(now.vars.map(x=>[x.l+(x.w?` <span class="loc">(peso ${x.w})</span>`:` <span class="loc">(só leitura)</span>`),pDisp(x),x.g,x.y,x.rd,pColor[x.c]||""]))+
  (T.blk.length?`<section class="panel side"><h3>Bloqueadores</h3><ul>${T.blk.map(b=>`<li class="${now.fired.includes(b[0])?"c-r":""}">${b[0]}${now.fired.includes(b[0])?" — acionado":""}</li>`).join("")}</ul></section>`:"")+
- notes([["n","Índice já em produção no AgriVox, com as mesmas regras do código atual. Aqui a previsão vem da TWC; a Open-Meteo entra só para a temperatura a 80 m (inversão), a chuva dos outros modelos (concordância) e as horas passadas."],...(id==="pulverizacao"?[["n","A cor da hora sai de três fatores (temperatura, umidade ≥ 2,4 × T e mais de 4 h até chuva): verde com os três, amarelo com um ou dois, vermelho com nenhum. As outras linhas são só leitura."]]:[])]))}
+ notes([["n","Índice já em produção no AgriVox, com as mesmas regras do código atual. Aqui o cálculo usa a previsão hora a hora; complementam a temperatura a 80 m (inversão), a chuva de outros modelos (concordância) e as horas passadas."],...(id==="pulverizacao"?[["n","A cor da hora sai de três fatores (temperatura, umidade ≥ 2,4 × T e mais de 4 h até chuva): verde com os três, amarelo com um ou dois, vermelho com nenhum. As outras linhas são só leitura."]]:[])]))}
 
 /* ferrugem (ferrugem.py) */
 const FT=[[10,0],[20,1],[26,1],[26.5,0.75],[27.5,0]],FM=[[6,.30],[8,.45],[10,.70],[12,1]];
@@ -687,7 +687,7 @@ function pFerrugemScreen(P){const F=P.ferrugem;const cb2=x=>pColor[fBand(x)[2]];
  <section class="panel days"><h3>Últimos 7 dias</h3>${F.pst.map(d=>`<div class="dayrow"><span class="lab">${dayLabel(d.d,9)}</span><div class="cells" style="grid-template-columns:1fr"><i class="${cb2(d.ifi)}"></i></div><span class="sum">${d.wet} h molhadas · IFI ${fmt(d.ifi)}</span></div>`).join("")}</section>`,
  legend([["g","Verde: baixa ou baixa a moderada (IFI até 40)"],["y","Amarelo: moderada ou alta (41–80)"],["r","Vermelho: muito alta (81–100)"]])+
  racional(["IFI = fator de temperatura × fator de molhamento × 100, por evento de horas molhadas seguidas.","Hora molhada (regra em produção): T − Td ≤ 2 °C, umidade ≥ 90 % ou chuva > 0.","Fator de temperatura: 0 a 10 °C, 1 de 20 a 26 °C, 0 a partir de 27,5 °C. Fator de molhamento: 0 abaixo de 6 h, 1 a partir de 12 h.","Fontes: Yorinori et al. (Embrapa Soja); o índice considera só o clima, não o inóculo."],"indicar a favorabilidade climática à ferrugem-asiática da soja.")+
- notes([["n","Índice já em produção no AgriVox, com a regra de molhamento atual; previsão da TWC e, para os 7 dias passados, Open-Meteo. Pela decisão da 2ª rodada, ele vai passar a usar o mesmo motor de molhamento dos novos índices; as faixas precisarão ser revalidadas."]]))}
+ notes([["n","Índice já em produção no AgriVox, com a regra de molhamento atual; usa a previsão hora a hora e os dados dos 7 dias passados. Pela decisão da 2ª rodada, ele vai passar a usar o mesmo motor de molhamento dos novos índices; as faixas precisarão ser revalidadas."]]))}
 
 const PROD_IDS=["pulverizacao","deriva","chuva"];
 PROD_IDS.forEach(id=>V[id]=R=>R.prod?pScreen(id,R.prod):`<div class="ask"><strong>${S.data&&S.data.omm===undefined?"Os índices em produção só aparecem na versão publicada, que busca os dados ao vivo.":"Os dados dos índices em produção não carregaram. Tente calcular de novo."}</strong></div>`);
