@@ -31,6 +31,10 @@ h1,h2,h3{font-family:var(--f-display);margin:0;text-wrap:balance}
 .btn{font:600 14px var(--f-body);padding:10px 18px;border-radius:8px;border:0;background:var(--brand);color:var(--brand-ink);cursor:pointer}
 .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--ink)}
 .choices{display:flex;gap:6px;flex-wrap:wrap}
+.savedrow{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.saved{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.saved .chip{display:inline-flex;gap:6px;align-items:center}
+.saved .x{border:0;background:transparent;color:var(--muted);cursor:pointer;font-size:14px;padding:0 2px}
 .loc{font-size:13px;color:var(--muted)}
 .crop{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:12px}
 .crop .now small{display:block;font:500 11px var(--f-mono);color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px}
@@ -121,7 +125,8 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
    <button type="submit" class="btn">Calcular</button>
   </form>
   <div class="choices" id="choices"></div>
-  <div class="loc" id="loc">Informe uma cidade, uma coordenada ou um código do CAR.</div>
+  <div class="savedrow"><div class="loc" id="loc">Informe uma cidade, uma coordenada ou um código do CAR.</div><button type="button" class="btn ghost" id="savebtn" hidden>☆ Salvar este local</button></div>
+  <div class="saved" id="saved"></div>
   <div class="crop">
    <div class="now"><small>Cultura consultada</small><b id="cropname">—</b></div>
    <div class="seg" role="group" aria-label="Trocar cultura">
@@ -187,6 +192,14 @@ $("#f").addEventListener("submit",async e=>{e.preventDefault();const q=$("#q").v
 function centroid(g){const polys=g.type==="MultiPolygon"?g.coordinates:[g.coordinates];let best=null;
  for(const p of polys){const r=p[0];let A=0,cx=0,cy=0;for(let i=0;i<r.length-1;i++){const[x0,y0]=r[i],[x1,y1]=r[i+1];const k=x0*y1-x1*y0;A+=k;cx+=(x0+x1)*k;cy+=(y0+y1)*k}A/=2;if(A===0)continue;const c=[cx/(6*A),cy/(6*A),Math.abs(A)];if(!best||c[2]>best[2])best=c}
  return best||g.coordinates.flat(3).slice(0,2)}
+/* ---------- locais salvos (ficam guardados neste navegador) ---------- */
+const sameP=(a,b)=>a&&b&&Math.abs(a.lat-b.lat)<1e-4&&Math.abs(a.lon-b.lon)<1e-4;
+function savedList(){return store.get("agx-places")||[]}
+function paintSaved(){const L=savedList();const box=$("#saved");box.innerHTML=L.length?`<span class="loc">Meus locais:</span>`:"";
+ L.forEach((pl,i)=>{const c=document.createElement("span");c.className="chip";c.setAttribute("aria-pressed",sameP(pl,S.place));c.innerHTML=`<span style="cursor:pointer">${esc(pl.nome)}</span><button type="button" class="x" title="Remover" aria-label="Remover ${esc(pl.nome)}">×</button>`;
+  c.firstChild.onclick=()=>go(pl);c.lastChild.onclick=()=>{const n=savedList().filter((_,j)=>j!==i);store.set("agx-places",n);paintSaved()};box.appendChild(c)});
+ const b=$("#savebtn");if(b){b.hidden=!S.place||!!window.SNAP;const has=L.some(pl=>sameP(pl,S.place));b.textContent=has?"★ Local salvo":"☆ Salvar este local";b.disabled=has}}
+document.addEventListener("click",e=>{if(e.target.id==="savebtn"&&S.place){const L=savedList();if(!L.some(pl=>sameP(pl,S.place))){L.push({lat:S.place.lat,lon:S.place.lon,nome:S.place.nome});store.set("agx-places",L)}paintSaved()}});
 function status(t,err){const s=$("#status");s.textContent=t||"";s.className="status"+(err?" err":"")}
 
 /* ---------- cultura ---------- */
@@ -197,7 +210,7 @@ function paintCrop(){$("#cropname").textContent=S.crop?CROPS[S.crop].nome.toUppe
 /* ---------- dados ---------- */
 async function twc(path,lat,lon){const u=`https://api.weather.com${path}?geocode=${lat.toFixed(3)},${lon.toFixed(3)}&units=m&language=pt-BR&format=json&apiKey=${TWC_KEY}`;const r=await fetch(u);if(!r.ok)throw new Error(`A previsão da TWC não respondeu (HTTP ${r.status}). Se for 401, a chave de teste venceu.`);return r.json()}
 const om=async u=>{const r=await fetch(u);const j=await r.json();if(j.error)throw new Error("Open-Meteo: "+j.reason);return j};
-async function go(place){S.place=place;store.set("agx-last",place);$("#loc").textContent=place.nome+` · ${fmt(place.lat,3)} / ${fmt(place.lon,3)}`;
+async function go(place){S.place=place;store.set("agx-last",place);setTimeout(paintSaved,0);$("#loc").textContent=place.nome+` · ${fmt(place.lat,3)} / ${fmt(place.lon,3)}`;
  const saved=store.get(cropKey());S.crop=saved||null;paintCrop();$("#ask").hidden=!!saved;
  status("Buscando dados da previsão e do histórico… (o histórico do solo e da radiação leva alguns segundos)");$("#view").innerHTML="";S.data=null;
  const {lat,lon}=place;const today=new Date();const y=today.getFullYear();
@@ -709,7 +722,7 @@ if(window.SNAP){const X=window.SNAP;const addH=(t0,n,fmtFn)=>{const b=new Date(t
  $("#loc").textContent=`${X.nome} · ${fmt(X.lat,3)} / ${fmt(X.lon,3)} · versão de visualização com dados congelados de ${S.data.when.toLocaleString("pt-BR",{dateStyle:"short",timeStyle:"short"})}`;
  $("#f").addEventListener("submit",e=>{e.preventDefault();e.stopImmediatePropagation();status("Nesta versão de visualização a busca está desligada: os dados de Passo Fundo estão gravados na página. Na versão publicada no GitHub Pages a busca calcula ao vivo.",true)},true);
  $("#ask").hidden=false;S.res=compute(S.data,"SOJA");render();status("Escolha a cultura para ver semeadura e temperatura do solo. Os demais índices já estão calculados.")}
-else{const last=store.get("agx-last");if(last){$("#q").value="";go(last)}}
+else{paintSaved();const last=store.get("agx-last");if(last){$("#q").value="";go(last)}}
 </script>
 </body>
 </html>
