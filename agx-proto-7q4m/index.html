@@ -280,7 +280,7 @@ function compute(D,crop){
   const ISO=0.35*lin(r.P24,25,10)+0.25*lin(r.P72,50,25)+0.20*rec+0.20*lin(et0[r.t.slice(0,10)]||0,1.5,3);
   const f24=fwd(i,1,25),f2472=fwd(i,25,73),f72=fwd(i,1,73),imax=Math.max(0,...H.slice(i+1,i+25).map(x=>x.P1));const u=r.u==null?50:r.u;let s24,s72;
   if(u<40){s24=two(f24,2,5,20,35);s72=two(f2472,5,10,30,50)}else if(u<=75){s24=lin(f24,35,15);s72=lin(f2472,50,20)}else{s24=lin(f24,35,5);s72=lin(f2472,50,10)}
-  const IHE=0.60*two(u,25,40,75,90)+0.25*s24+0.15*s72;const ITE=0.80*two(r.Ts,L.a[0],L.g[0],L.g[1],L.a[1])+20;
+  const IHE=0.60*two(u,25,40,75,90)+0.25*s24+0.15*s72;const mn48=Math.min(...H.slice(i,i+48).map(x=>x.Ts).filter(x=>x!=null));const ITE=0.80*two(r.Ts,L.a[0],L.g[0],L.g[1],L.a[1])+0.20*lin(mn48,L.crit,L.g[0]);
   const IEX=0.50*lin(f72,50,30)+0.30*lin(imax,25,10)+0.20*(r.temporal==="alto"?0:r.temporal==="moderado"?50:100);
   r.IOCS=0.30*ISO+0.30*IHE+0.20*ITE+0.20*IEX;r.f24=f24;r.f72=f72;r.imax=imax;
   let frio=0,run=0;H.slice(i,i+24).forEach(x=>{run=x.Ts<L.crit?run+1:0;frio=Math.max(frio,run)});
@@ -344,12 +344,18 @@ function compute(D,crop){
  const II=0.35*lin(molh48,6,24)+0.25*sTar+0.15*lin(ur86,4,12)+0.10*lin(dTn,5,1)+0.10*lin(ch72,5,30)+0.05*lin(nb48,30,80);
  const daysM={};w72.forEach(x=>{const d=x.t.slice(0,10);const q=daysM[d]=daysM[d]||{p:0,w:0,u:0};q.p+=x.P1;q.w+=x.MFE?1:0;q.u+=x.UR>=86?1:0});
  let hr=0;Object.values(daysM).forEach(q=>{hr=(q.p>=2||q.w>=6||q.u>=8)?hr+1:0});
- const IIb=x=>x; // tendência do mofo: média do II por janela não é calculável hora a hora com as variáveis em 48 h; usa a das manchas como sinal
- const IPm=0.50*lin(hr,3,10)+0.30*lin(molh72,6,24)+0.20*tend;
+ const IIat=i=>{const a=H.slice(i,i+48),b=H.slice(i,i+24),c=H.slice(i,i+72);const wt=a.filter(x=>x.MFE);const Tm=wt.length?wt.reduce((p,x)=>p+x.T,0)/wt.length:null;
+  const nt=a.filter(x=>{const h=+x.t.slice(11,13);return h>=20||h<6});const dn=nt.reduce((p,x)=>p+x.dT,0)/Math.max(1,nt.length);
+  return 0.35*lin(wt.length,6,24)+0.25*(Tm==null?0:pw(Tm,[[10,0],[15,100],[22,100],[25,67],[28,33],[30,0]]))+0.15*lin(b.filter(x=>x.UR>=86).length,4,12)+0.10*lin(dn,5,1)+0.10*lin(c.reduce((p,x)=>p+x.P1,0),5,30)+0.05*lin(a.reduce((p,x)=>p+x.nb,0)/a.length,30,80)};
+ H.forEach((x,i)=>{x.II=i+48<=H.length?IIat(i):null});
+ const mII=(a,b)=>{const s=H.slice(a,b).filter(x=>x.II!=null);return s.reduce((p,x)=>p+x.II,0)/Math.max(1,s.length)};
+ const dM=mII(24,72)-mII(0,24);const tendM=dM<=-20?0:dM<=-5?25:dM<5?50:dM<20?75:100;
+ const IPm=0.50*lin(hr,3,10)+0.30*lin(molh72,6,24)+0.20*tendM;
  const IFMB=0.40*IA+0.45*II+0.15*IPm;
- H.forEach(x=>{x.mofoProp=(x.MFE||x.UR>=86)&&x.T>=15&&x.T<=25});
+ H.forEach(x=>{x.mofoProp=(x.MFE||x.UR>=86)&&x.T>=15&&x.T<=25&&(x.II==null||x.II>=61)});
  let pers=0,cur=0;w72.forEach(x=>{cur=x.mofoProp?cur+1:0;pers=Math.max(pers,cur)});
- const mofo={IFMB,IA,II,IP:IPm,molh48,molh72,Tmol,ur86,dTn,ch72,rain7,soloRun,u:H0.u,Ts:H0.Ts,pers,frioUmido:H0.T>=15&&H0.T<=22&&(H0.MFE||H0.UR>=86)};
+ const jr=(()=>{let b=null,c=null;H.slice(0,72).forEach(x=>{if(x.II!=null&&x.II>=71){if(!c)c={a:x,n:0};c.n++;c.z=x;if(!b||c.n>b.n)b={...c}}else c=null});return b})();
+ const mofo={jr,tendM,IFMB,IA,II,IP:IPm,molh48,molh72,Tmol,ur86,dTn,ch72,rain7,soloRun,u:H0.u,Ts:H0.Ts,pers,frioUmido:H0.T>=15&&H0.T<=22&&(H0.MFE||H0.UR>=86)};
  return{H,p2,p98,dR,climDia,dP,man,mofo,crop,first};
 }
 
@@ -436,7 +442,7 @@ V.operacoes=R=>{const H=R.H,n=H[0];const J=r=>{const h=+r.t.slice(11,13);return 
  <div><span>Colheita</span><b class="num">${fh(a.col)} · ${fh(b.col)} em 72 h</b></div>
  <div><span>Adubação</span><b class="num">${fh(a.adub)} · ${fh(b.adub)} em 72 h</b></div>
  <div><span><b>Operações gerais</b></span><b class="num">${fh(a.og)} · ${fh(b.og)} em 72 h</b></div></div></section>
- <div class="foot">${kpi("Melhor janela geral",mj?span(mj):"Sem janela","Próximas 72 h, mínimo 3 h","c-g")}${kpi("Maior restrição",top?top[0]:"nenhuma",top?`${top[1]} h perdidas nas próximas 24 h`:"")}${kpi("Atualização",S.data.when.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}),"Ao abrir a tela")}</div>
+ <div class="foot">${kpi("Melhor janela geral",mj?span(mj):"Sem janela","Próximas 72 h, mínimo 3 h","c-g")}${kpi("Maior restrição",top?top[0]:"nenhuma",top?`${top[1]} h perdidas em 24 h · maior bloco ${span(longest(H.slice(0,24).filter(J),r=>r.og!=="g"&&r.motivo===top[0]))}`:"")}${kpi("Atualização",S.data.when.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}),"Ao abrir a tela")}</div>
  ${week(H,"og",hs=>hs.filter(r=>J(r)&&r.og==="g").length+" h disponíveis")}`,
  legend([["g","Verde: boa disponibilidade operacional"],["y","Amarelo: disponibilidade moderada"],["r","Vermelho: poucas horas úteis"]])+
  vtable([["Chuva / prob. 2 h",`${fmt(n.P1,1)} mm · ${fmt(n.pop2)} %`,"0 · < 20","20–50 %","≥ 0,1 mm ou > 50 %",n.P1>=0.1||n.pop2>50?"r":n.pop2>=20?"y":"g"],["Trafegabilidade climática",["baixa","média","alta"][n.traf],"alta","média","baixa",["r","y","g"][n.traf]],["Vento",n.v+" km/h","< 20","20–30","> 30",band(n.v,x=>x<20,x=>x<=30)],["Rajadas",n.g+" km/h","< 35","35–50","> 50",band(n.g,x=>x<35,x=>x<=50)],["Visibilidade",fmt(n.vis,1)+" km","≥ 5","1–5","< 1",band(n.vis,x=>x>=5,x=>x>=1)],["Temporal",n.temporal,"baixo","moderado","alto",{baixo:"g",moderado:"y",alto:"r"}[n.temporal]]])+
@@ -469,24 +475,24 @@ V.solo=R=>{if(!S.crop)return needCrop();const H=R.H,n=H[0],L=CROPS[S.crop];const
 
 V.orvalho=R=>{const H=R.H,n=H[0];const cl=x=>x>=86?["MUITO PROVÁVEL","b"]:x>=71?["PROVÁVEL","b"]:x>=51?["ALTA PROBABILIDADE","y"]:x>=31?["ATENÇÃO","y"]:["BAIXA CHANCE","g"];
  const nx=H.slice(0,18);const mx=nx.reduce((a,r)=>r.IFO>a.IFO?r:a,nx[0]);const ini=nx.find(r=>r.state==="orvalho");const sec=ini?H.slice(H.indexOf(ini)).find(r=>r.state==="seco"):null;
- const agora=n.P1>=0.1?["CHUVA AGORA","y"]:cl(n.IFO);
- return page(`<div class="hero">${hero("Agora",agora[0],agora[1],`IFO ${fmt(n.IFO)} · próximas 18 h: ${cl(mx.IFO)[0].toLowerCase()} (IFO ${fmt(mx.IFO)})`)}${kpi("Ponto de orvalho atual",n.Td+" °C")}${kpi("Temperatura do ar",n.T+" °C",`Umidade ${n.UR} %`)}</div>
- ${strip(H,"orv",18,"Formação de orvalho por hora","(próximas 18 horas · azul = provável)")}
+ const agora=n.P1>=0.1?["CHUVA AGORA","y"]:cl(n.IFO);const fut=mx.IFO>=71&&!ini?"possível, sem horário de início":cl(mx.IFO)[0].toLowerCase();
+ return page(`<div class="hero">${hero("Agora",agora[0],agora[1],`IFO ${fmt(n.IFO)} · próximas 18 h: ${fut} (IFO ${fmt(mx.IFO)})`)}${kpi("Ponto de orvalho atual",n.Td+" °C")}${kpi("Temperatura do ar",n.T+" °C",`Umidade ${n.UR} %`)}</div>
+ ${strip(H,"orv",18,"Formação de orvalho por hora","(próximas 18 horas · azul = IFO 71 ou mais)")}
  <div class="foot">${kpi("Distância T − Td agora",fmt(n.dT)+" °C")}${kpi("Início provável",ini?`${dayShort(ini.t)} ${hh(ini.t)}`:"—",ini?"":"Sem início pela regra atual")}${kpi("Secagem estimada",sec?`${dayShort(sec.t)} ${hh(sec.t)}`:"—")}</div>
  ${week(H,"orv",hs=>"IFO máx. "+fmt(Math.max(...hs.map(r=>r.IFO))))}`,
- legend([["g","Verde: baixa chance de orvalho"],["y","Amarelo: atenção"],["b","Azul: orvalho provável ou presente"]])+
+ legend([["g","Verde: baixa chance de orvalho"],["y","Amarelo: atenção"],["b","Azul: IFO 71 ou mais (provável só com a regra de início)"]])+
  vtable([["T − Td",fmt(n.dT)+" °C","> 4","2–4","≤ 2",band(n.dT,x=>x>4,x=>x>2)],["T dossel − Td",fmt(n.dd,1)+" °C","> 3","1–3","≤ 1",band(n.dd,x=>x>3,x=>x>1)],["Umidade relativa",n.UR+" %","< 80","80–90","> 90",band(n.UR,x=>x<80,x=>x<=90)],["Nebulosidade total",n.nb+" %","> 70","30–70","< 30",band(n.nb,x=>x>70,x=>x>=30)],["Vento",n.v+" km/h","> 12","6–12","< 6",band(n.v,x=>x>12,x=>x>=6)],["Visibilidade",fmt(n.vis,1)+" km","≥ 5","1–5","< 1",band(n.vis,x=>x>=5,x=>x>=1)]])+
  racional(["IFO: 35% T dossel − Td, 15% umidade, 15% resfriamento noturno, 10% nebulosidade, 10% vento, 5% T − Td, 5% nuvens baixas, 5% névoa ou nevoeiro.","Temperatura do dossel estimada à noite pela resposta 19."],"indicar o risco e o horário provável de formação de orvalho.")+
- notes([["q","A previsão vem em graus inteiros, e a regra de início (dossel a até 0,5 °C do ponto de orvalho por 2 h) quase nunca é atingida: o IFO marca 'provável' sem horário de início (pergunta 2)."],["n","Na escala da p. 20, 'alta probabilidade' (51–70) fica abaixo de 'provável' (71–85); o nome pode confundir o produtor."]]))};
+ notes([["q","A previsão vem em graus inteiros: o resfriamento de uma hora para outra alterna entre 0 e 1 °C, e o IFO oscila cerca de 15 pontos entre horas seguidas. Por isso ele raramente fica 2 h seguidas em 71 ou mais com o dossel a 0,5 °C do ponto de orvalho. Em 7 noites de Passo Fundo, Sorriso e Londrina, houve 1 início de orvalho (pergunta 2)."],["n","Na escala da p. 20, 'alta probabilidade' (51–70) fica abaixo de 'provável' (71–85); o nome pode confundir o produtor."]]))};
 
 V.mofo=R=>{const m=R.mofo,H=R.H;const cl=x=>x<=30?["BAIXA","g"]:x<=50?["MODERADA","y"]:x<=70?["ALTA","r"]:["MUITO ALTA","r"];const c=cl(m.IFMB);
- return page(`<div class="hero">${hero("Favorabilidade atual",c[0],c[1],`IFMB ${fmt(m.IFMB)} · apotécios ${fmt(m.IA)} · infecção ${fmt(m.II)} · persistência ${fmt(m.IP)}`)}${kpi("Período crítico","Próximas 48 h",`Molhamento previsto: ${m.molh48} h`)}${kpi("Persistência favorável",m.pers+" h","Maior sequência nas próximas 72 h")}</div>
- <div class="foot">${kpi("Ambiente frio/úmido",m.frioUmido?"Presente":"Ausente","Agora")}${kpi("Temperatura ideal","15–22 °C",m.Tmol!=null?`No molhamento: ${fmt(m.Tmol,1)} °C`:"Sem molhamento previsto")}${kpi("Tendência",R.man.tend>=75?"Aumentando":R.man.tend<=25?"Diminuindo":"Mantendo")}</div>
+ return page(`<div class="hero">${hero("Favorabilidade atual",c[0],c[1],`IFMB ${fmt(m.IFMB)} · apotécios ${fmt(m.IA)} · infecção ${fmt(m.II)} · persistência ${fmt(m.IP)}`)}${kpi("Período crítico","Próximas 48 h",`Molhamento previsto: ${m.molh48} h`)}${kpi(m.IA>=50?"Persistência favorável":"Ambiente úmido",m.pers+" h",m.IA>=50?"Maior sequência nas próximas 72 h":"Maior sequência em 72 h; apotécios abaixo de 50")}</div>
+ <div class="foot">${kpi("Ambiente frio/úmido",m.frioUmido?"Presente":"Ausente","Agora")}${kpi("Temperatura ideal","15–22 °C",m.Tmol!=null?`No molhamento: ${fmt(m.Tmol,1)} °C`:"Sem molhamento previsto")}${kpi("Tendência",m.tendM>=75?"Aumentando":m.tendM<=25?"Diminuindo":"Mantendo","Próximas 24 h x 24–72 h")}${kpi("Janela de maior risco",m.jr?span(m.jr):"Sem bloco de infecção alta",m.jr?(m.jr.n>=6?"Alerta: 6 h ou mais seguidas":m.jr.n+" h seguidas"):"Próximas 72 h")}</div>
  ${week(H,r=>r.mofoProp?"r":"g",hs=>hs.filter(r=>r.mofoProp).length+" h propícias","Próximos 7 dias · horas com ambiente propício",false)}`,
  legend([["g","Verde: baixa favorabilidade"],["y","Amarelo: moderada"],["r","Vermelho: alta favorabilidade"]])+
  vtable([["Temperatura do solo (6 cm)",fmt(m.Ts,1)+" °C","< 8","8–12","> 20–25",m.Ts>20&&m.Ts<=25?"r":m.Ts<8?"g":"y"],["Umidade do solo (relativa)",fmt(m.u)+" %","< 50","50–85","> 85",band(m.u,x=>x<50,x=>x<=85)],["Dias de solo úmido seguidos",m.soloRun,"< 3","3–10","> 10",band(m.soloRun,x=>x<3,x=>x<=10)],["Chuva últimos 7 dias",fmt(m.rain7)+" mm","< 10","10–50","> 50",band(m.rain7,x=>x<10,x=>x<=50)],["Molhamento foliar (48 h)",m.molh48+" h","< 6","6–24","> 24",band(m.molh48,x=>x<6,x=>x<=24)],["Horas UR ≥ 86% (24 h)",m.ur86+" h","< 4","4–12","> 12",band(m.ur86,x=>x<4,x=>x<=12)],["T − Td noturno",fmt(m.dTn,1)+" °C","> 5","1–5","< 1",band(m.dTn,x=>x>5,x=>x>=1)],["Chuva prevista 72 h",fmt(m.ch72)+" mm","< 5","5–30","> 30",band(m.ch72,x=>x<5,x=>x<=30)]])+
  racional(["IFMB = 40% apotécios (solo) + 45% infecção (48 h) + 15% persistência (72 h).","Molhamento pelo motor comum; dias úmidos pela chuva e pelo molhamento."],"indicar a pressão climática para mofo-branco em culturas suscetíveis.")+
- notes([["q","Umidade do solo na escala relativa do ponto, com os limites de 80% e 85% (pergunta 1)."],["q","Com orvalho quase nunca detectado (pergunta 2), o molhamento cai: em Passo Fundo, 12 h contra 27 h pela regra atual da ferrugem, e a classe desce de muito alta para alta."],["n","Os 7 dias mostram as horas com ambiente propício (resposta 54); a nota principal fica no horizonte de 48–72 h definido no slide."]]))};
+ notes([["q","Umidade do solo na escala relativa do ponto, com os limites de 80% e 85% (pergunta 1)."],["q","Com orvalho quase nunca detectado (pergunta 2), o molhamento cai: em Passo Fundo, 12 h contra 23 h em 48 h pela regra atual da ferrugem, e a classe desce de muito alta (77) para alta (67)."],["n","Os 7 dias mostram as horas com ambiente propício (resposta 54); a nota principal fica no horizonte de 48–72 h definido no slide."]]))};
 
 V.manchas=R=>{const H=R.H,M=R.man;const cl=x=>x<=30?["BAIXA","g"]:x<=60?["MODERADA","y"]:["ALTA","r"];const n=H[0];const a=cl(n.IFM),b1=M.blk(0,24),b2=M.blk(24,72);
  const jan=M.jan?`${dayShort(H[M.jan.i].t)} ${hh(H[M.jan.i].t)} – ${dayShort(H[M.jan.j-1].t)} ${String(+H[M.jan.j-1].t.slice(11,13)+1).padStart(2,"0")}h`:"Sem alerta elevado em 72 h";
@@ -511,7 +517,7 @@ function painel(R){const H=R.H,n=H[0];const card=(id,t,c,lab,big,p)=>`<a class="
  ${card("operacoes","Horas operacionais",n.og,{g:"Disponível",y:"Atenção",r:"Indisponível"}[n.og],og72+" h em 72 h","Operações gerais, jornada 06h–22h")}
  ${card("radiacao","Radiação solar",R.climDia[d0]&&R.dR[d0]>=R.climDia[d0]?"g":"y",`${fmt(R.dR[d0],1)} MJ/m² hoje`,R.climDia[d0]?`${fmt(100*R.dR[d0]/R.climDia[d0])}% da média`:"—",`Média histórica: ${R.climDia[d0]?fmt(R.climDia[d0],1):"—"} MJ/m²`)}
  ${S.crop?card("solo","Temperatura do solo",n.solo,{g:"Adequada",y:"Limítrofe",r:"Desfavorável",n:"Sem dado"}[n.solo]+" agora",fmt(n.Ts,1)+" °C a 6 cm",`Faixa ${CROPS[S.crop].g[0]}–${CROPS[S.crop].g[1]} °C (${CROPS[S.crop].nome.toLowerCase()})`):card("solo","Temperatura do solo","n","Escolha a cultura",fmt(n.Ts,1)+" °C a 6 cm","Soja ou milho, no topo da página")}
- ${card("orvalho","Ponto de orvalho",ifoMx>=71?"b":ifoMx>=31?"y":"g",`IFO ${fmt(n.IFO)} agora`,`Próx. 18 h: IFO ${fmt(ifoMx)}`,ifoMx>=71?"Orvalho provável":"Baixa chance ou atenção")}
+ ${card("orvalho","Ponto de orvalho",ifoMx>=71?"b":ifoMx>=31?"y":"g",`IFO ${fmt(n.IFO)} agora`,`Próx. 18 h: IFO ${fmt(ifoMx)}`,ifoMx>=71?(H.slice(0,18).some(r=>r.state==="orvalho")?"Orvalho provável":"Orvalho possível, sem horário de início"):"Baixa chance ou atenção")}
  ${card("mofo","Mofo-branco",mb(m.IFMB)[1],"Favorabilidade "+mb(m.IFMB)[0],fmt(m.IFMB)+" / 100",`Molhamento previsto em 48 h: ${m.molh48} h`)}
  ${card("manchas","Manchas foliares",cl3(n.IFM)[1],cl3(n.IFM)[0]+" agora","Próx. 24 h: "+cl3(R.man.blk(0,24).nota)[0],"De 24 a 72 h: "+cl3(R.man.blk(24,72).nota)[0])}
  </section><p class="foot-note">${upd()}. Fontes: previsão horária (15 dias) e observação das últimas 24 h; radiação, solo e histórico de modelos meteorológicos.</p>`}
