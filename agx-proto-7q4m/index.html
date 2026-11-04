@@ -540,10 +540,16 @@ const relevant=h=>(h.P!=null&&h.P>=0.5)||(h.pop!=null&&h.pop>50);
 function computeProd(D){
  const M=D.omm,lat=D.lat,lon=D.lon;if(!M||!M.hourly)return null;const h=M.hourly,off=M.utc_offset_seconds||0;
  const col=(v,m)=>h[`${v}_${m}`]||h[v]||[];const g=v=>col(v,"best_match");
- const twcQ={};if(D.f15){D.f15.validTimeLocal.forEach((t,i)=>twcQ[t.slice(0,13)]=D.f15.qpf[i])}
- const all=h.time.map((t,i)=>{const pm={};P_MODELS.forEach(m=>pm[m]=col("precipitation",m)[i]??null);const k=t.slice(0,13);if(k in twcQ)pm.twc=twcQ[k];
-  return{t,utc:new Date(Date.parse(t+":00Z")-off*1000).toISOString(),T:g("temperature_2m")[i],UR:g("relative_humidity_2m")[i],Td:g("dew_point_2m")[i],P:g("precipitation")[i],pop:g("precipitation_probability")[i],v:g("wind_speed_10m")[i],gu:g("wind_gusts_10m")[i],dir:g("wind_direction_10m")[i],nb:g("cloud_cover")[i],cape:g("cape")[i],t80:g("temperature_80m")[i],day:g("is_day")[i]==null?null:!!g("is_day")[i],pm}});
- const nowL=new Date(Date.now()+off*1000).toISOString().slice(0,13)+":00";const today=nowL.slice(0,10);
+ // Fonte: previsão da TWC hora a hora (a partir da hora atual). A Open-Meteo entra só onde a TWC não tem o dado:
+ // horas passadas (ferrugem olha 7 dias para trás; a TWC só tem 24 h e sem chuva por hora), temperatura a 80 m (inversão)
+ // e a chuva de outros modelos (concordância e confiança da janela).
+ const omIdx={};h.time.forEach((t,i)=>omIdx[t.slice(0,13)]=i);
+ const omRow=(t,i)=>{const pm={};P_MODELS.forEach(m=>pm[m]=col("precipitation",m)[i]??null);return{t,utc:new Date(Date.parse(t+":00Z")-off*1000).toISOString(),T:g("temperature_2m")[i],UR:g("relative_humidity_2m")[i],Td:g("dew_point_2m")[i],P:g("precipitation")[i],pop:g("precipitation_probability")[i],v:g("wind_speed_10m")[i],gu:g("wind_gusts_10m")[i],dir:g("wind_direction_10m")[i],nb:g("cloud_cover")[i],t80:g("temperature_80m")[i],day:g("is_day")[i]==null?null:!!g("is_day")[i],pm,src:"om"}};
+ const f=D.f15;const tw0=f?f.validTimeLocal[0].slice(0,13):"9999";const all=[];
+ h.time.forEach((t,i)=>{if(t.slice(0,13)<tw0)all.push(omRow(t,i))});
+ if(f){const n=Math.min(f.validTimeLocal.length,24*8);for(let i=0;i<n;i++){const vt=f.validTimeLocal[i];const t=vt.slice(0,13)+":00";const j=omIdx[t.slice(0,13)];const pm={};P_MODELS.forEach(m=>pm[m]=j!=null?(col("precipitation",m)[j]??null):null);pm.twc=f.qpf[i]??null;
+  all.push({t,utc:new Date(Date.parse(vt.replace(/(\d{2})(\d{2})$/,"$1:$2"))).toISOString(),T:f.temperature[i],UR:f.relativeHumidity[i],Td:f.temperatureDewPoint[i],P:f.qpf[i]??0,pop:f.precipChance[i],v:f.windSpeed[i],gu:f.windGust[i]??f.windSpeed[i],dir:f.windDirection?f.windDirection[i]:null,nb:f.cloudCover[i],t80:j!=null?g("temperature_80m")[j]:null,day:f.dayOrNight[i]==="D",pm,src:"twc"})}}
+ const nowL=f?tw0+":00":new Date(Date.now()+off*1000).toISOString().slice(0,13)+":00";const today=nowL.slice(0,10);
  const start=all.findIndex(r=>r.t.slice(0,10)===today);const cur=all.findIndex(r=>r.t>=nowL);
  // métricas por hora (metrics.py)
  all.forEach((r,i)=>{const nx=n=>all.slice(i+1,i+1+n);
@@ -651,7 +657,7 @@ function pScreen(id,P){const T=PTABLES[id],E=P[id],at=E.at,ev=E.ev,now=ev[at],fo
  legend([["g",`Verde: ${T.ruler[0][2].toLowerCase()}`],["y",`Amarelo: ${T.ruler[1][2].toLowerCase()}`],["r",`Vermelho: ${T.ruler[2][2].toLowerCase()}`]])+
  vtable(now.vars.map(x=>[x.l+(x.w?` <span class="loc">(peso ${x.w})</span>`:` <span class="loc">(só leitura)</span>`),pDisp(x),x.g,x.y,x.rd,pColor[x.c]||""]))+
  (T.blk.length?`<section class="panel side"><h3>Bloqueadores</h3><ul>${T.blk.map(b=>`<li class="${now.fired.includes(b[0])?"c-r":""}">${b[0]}${now.fired.includes(b[0])?" — acionado":""}</li>`).join("")}</ul></section>`:"")+
- notes([["n","Índice já em produção no AgriVox, replicado aqui com as mesmas regras do código atual, para conferência no mesmo lugar."],...(id==="pulverizacao"?[["n","A cor da hora sai de três fatores (temperatura, umidade ≥ 2,4 × T e mais de 4 h até chuva): verde com os três, amarelo com um ou dois, vermelho com nenhum. As outras linhas são só leitura."]]:[])]))}
+ notes([["n","Índice já em produção no AgriVox, com as mesmas regras do código atual. Aqui a previsão vem da TWC; a Open-Meteo entra só para a temperatura a 80 m (inversão), a chuva dos outros modelos (concordância) e as horas passadas."],...(id==="pulverizacao"?[["n","A cor da hora sai de três fatores (temperatura, umidade ≥ 2,4 × T e mais de 4 h até chuva): verde com os três, amarelo com um ou dois, vermelho com nenhum. As outras linhas são só leitura."]]:[])]))}
 
 /* ferrugem (ferrugem.py) */
 const FT=[[10,0],[20,1],[26,1],[26.5,0.75],[27.5,0]],FM=[[6,.30],[8,.45],[10,.70],[12,1]];
@@ -681,7 +687,7 @@ function pFerrugemScreen(P){const F=P.ferrugem;const cb2=x=>pColor[fBand(x)[2]];
  <section class="panel days"><h3>Últimos 7 dias</h3>${F.pst.map(d=>`<div class="dayrow"><span class="lab">${dayLabel(d.d,9)}</span><div class="cells" style="grid-template-columns:1fr"><i class="${cb2(d.ifi)}"></i></div><span class="sum">${d.wet} h molhadas · IFI ${fmt(d.ifi)}</span></div>`).join("")}</section>`,
  legend([["g","Verde: baixa ou baixa a moderada (IFI até 40)"],["y","Amarelo: moderada ou alta (41–80)"],["r","Vermelho: muito alta (81–100)"]])+
  racional(["IFI = fator de temperatura × fator de molhamento × 100, por evento de horas molhadas seguidas.","Hora molhada (regra em produção): T − Td ≤ 2 °C, umidade ≥ 90 % ou chuva > 0.","Fator de temperatura: 0 a 10 °C, 1 de 20 a 26 °C, 0 a partir de 27,5 °C. Fator de molhamento: 0 abaixo de 6 h, 1 a partir de 12 h.","Fontes: Yorinori et al. (Embrapa Soja); o índice considera só o clima, não o inóculo."],"indicar a favorabilidade climática à ferrugem-asiática da soja.")+
- notes([["n","Índice já em produção no AgriVox, replicado com a regra de molhamento atual. Pela decisão da 2ª rodada, ele vai passar a usar o mesmo motor de molhamento dos novos índices; as faixas precisarão ser revalidadas."]]))}
+ notes([["n","Índice já em produção no AgriVox, com a regra de molhamento atual; previsão da TWC e, para os 7 dias passados, Open-Meteo. Pela decisão da 2ª rodada, ele vai passar a usar o mesmo motor de molhamento dos novos índices; as faixas precisarão ser revalidadas."]]))}
 
 const PROD_IDS=["pulverizacao","deriva","chuva"];
 PROD_IDS.forEach(id=>V[id]=R=>R.prod?pScreen(id,R.prod):`<div class="ask"><strong>${S.data&&S.data.omm===undefined?"Os índices em produção só aparecem na versão publicada, que busca os dados ao vivo.":"Os dados dos índices em produção não carregaram. Tente calcular de novo."}</strong></div>`);
