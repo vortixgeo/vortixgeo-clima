@@ -108,7 +108,7 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
 </head>
 <body>
 <div class="wrap">
- <div class="top"><h1>Agri<span>Vox</span> · novos índices</h1><div class="proto">Protótipo para validação · não é a versão de produção</div></div>
+ <div class="top"><h1>Agri<span>Vox</span> · novos índices <span class="loc" style="font-size:12px;font-weight:500">(● = já em produção)</span></h1><div class="proto">Protótipo para validação · não é a versão de produção</div></div>
 
  <section class="bar" aria-label="Local da consulta">
   <div class="modes" role="group" aria-label="Como localizar a área">
@@ -166,7 +166,8 @@ const CROPS={SOJA:{g:[20,30],a:[18,35],crit:18,nome:"Soja"},MILHO:{g:[16,30],a:[
 const S={mode:"cidade",place:null,crop:null,data:null,res:null};
 const INDICES=[
  ["painel","Painel"],["semeadura","Semeadura"],["colheita","Colheita"],["secagem","Potencial de secagem"],["operacoes","Horas operacionais"],
- ["radiacao","Radiação solar"],["solo","Temperatura do solo"],["orvalho","Ponto de orvalho"],["mofo","Mofo-branco"],["manchas","Manchas foliares"]];
+ ["radiacao","Radiação solar"],["solo","Temperatura do solo"],["orvalho","Ponto de orvalho"],["mofo","Mofo-branco"],["manchas","Manchas foliares"],
+ ["pulverizacao","Pulverização ●"],["deriva","Deriva ●"],["chuva","Livre de chuva ●"],["ferrugem","Ferrugem ●"]];
 
 /* ---------- busca de local ---------- */
 const PH={cidade:"Nome da cidade, ex.: Passo Fundo",coord:"Latitude, longitude, ex.: -28.26, -52.41",car:"Código do CAR, ex.: RS-4314100-…"};
@@ -202,14 +203,16 @@ async function go(place){S.place=place;store.set("agx-last",place);$("#loc").tex
  const {lat,lon}=place;const today=new Date();const y=today.getFullYear();
  const d0=new Date(today.getTime()-366*864e5).toISOString().slice(0,10),d1=new Date(today.getTime()-2*864e5).toISOString().slice(0,10);
  try{
-  const [f15,h24,omf,oms,hist,arc]=await Promise.all([
+  const [f15,h24,omf,oms,hist,arc,omm,obs]=await Promise.all([
    twc("/v3/wx/forecast/hourly/15day",lat,lon),
    twc("/v3/wx/conditions/historical/hourly/1day",lat,lon).catch(()=>null),
    om(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=shortwave_radiation,cloud_cover_low,soil_temperature_6cm,precipitation&daily=et0_fao_evapotranspiration,precipitation_sum,shortwave_radiation_sum&past_days=14&forecast_days=9&timezone=auto`),
    om(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=soil_moisture_0_to_1cm,soil_moisture_1_to_3cm,soil_moisture_3_to_9cm&past_days=14&forecast_days=9&timezone=auto&models=ecmwf_ifs`),
    om(`https://historical-forecast-api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&start_date=${d0}&end_date=${d1}&hourly=soil_moisture_0_to_1cm,soil_moisture_1_to_3cm,soil_moisture_3_to_9cm&models=ecmwf_ifs&timezone=auto`),
-   om(`https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&start_date=${y-10}-01-01&end_date=${y-1}-12-31&daily=shortwave_radiation_sum&timezone=auto`)]);
-  S.data={f15,h24,omf,oms,hist,arc,lat,lon,when:new Date()};
+   om(`https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&start_date=${y-10}-01-01&end_date=${y-1}-12-31&daily=shortwave_radiation_sum&timezone=auto`),
+   om(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=${P_VARS}&models=${P_MODELS.join(",")},best_match&past_days=7&forecast_days=7&wind_speed_unit=kmh&timezone=auto`).catch(()=>null),
+   twc("/v3/wx/observations/current",lat,lon).catch(()=>null)]);
+  S.data={f15,h24,omf,oms,hist,arc,omm,obs,lat,lon,when:new Date()};
   if(!S.crop){status("Escolha a cultura acima para ver semeadura e temperatura do solo. Os demais índices já estão calculados.")}else status("");
   S.res=compute(S.data,S.crop||"SOJA");render();
  }catch(err){status(err.message,true)}}
@@ -356,7 +359,8 @@ function compute(D,crop){
  let pers=0,cur=0;w72.forEach(x=>{cur=x.mofoProp?cur+1:0;pers=Math.max(pers,cur)});
  const jr=(()=>{let b=null,c=null;H.slice(0,72).forEach(x=>{if(x.II!=null&&x.II>=71){if(!c)c={a:x,n:0};c.n++;c.z=x;if(!b||c.n>b.n)b={...c}}else c=null});return b})();
  const mofo={jr,tendM,IFMB,IA,II,IP:IPm,molh48,molh72,Tmol,ur86,dTn,ch72,rain7,soloRun,u:H0.u,Ts:H0.Ts,pers,frioUmido:H0.T>=15&&H0.T<=22&&(H0.MFE||H0.UR>=86)};
- return{H,p2,p98,dR,climDia,dP,man,mofo,crop,first};
+ let prod=null;try{prod=D.omm?computeProd(D):null}catch(e){console.error(e)}
+ return{H,p2,p98,dR,climDia,dP,man,mofo,crop,first,prod};
 }
 
 /* ---------- apresentação ---------- */
@@ -504,6 +508,172 @@ V.manchas=R=>{const H=R.H,M=R.man;const cl=x=>x<=30?["BAIXA","g"]:x<=60?["MODERA
  racional(["IFMFS = 45% infecção + 25% disseminação + 30% persistência.","Hora favorável: 20–28 °C, molhamento ou umidade ≥ 90%, umidade ≥ 85% e IPSA < 60 (resposta 56)."],"alertar sobre a pressão climática para o complexo de manchas foliares da soja.")+
  notes([["p","Cálculo hora a hora: cada hora usa o molhamento e a umidade das 24 h anteriores, e a nota do período é a média das horas (resposta 5)."],["n","Os dias úmidos anteriores usam a chuva diária do histórico."]]))};
 
+/* ---------- índices em produção (réplica do código do AgriVox: pulverização, deriva, chuva, ferrugem) ---------- */
+const P_MODELS=["gfs_seamless","ecmwf_ifs025","icon_seamless"];
+const P_VARS="temperature_2m,relative_humidity_2m,dew_point_2m,precipitation,precipitation_probability,wind_speed_10m,wind_gusts_10m,wind_direction_10m,cloud_cover,cape,temperature_80m,is_day";
+const pColor={verde:"g",amarelo:"y",vermelho:"r"};
+const pScoreBy={verde:100,amarelo:70,vermelho:0};
+const inI=(v,lo,hi,il=true,ih=true)=>!(lo!=null&&(v<lo||(v===lo&&!il)))&&!(hi!=null&&(v>hi||(v===hi&&!ih)));
+const nb=(g,y)=>v=>g.some(i=>inI(v,...i))?"verde":y.some(i=>inI(v,...i))?"amarelo":"vermelho";
+const cb=(g,y)=>v=>g.includes(v)?"verde":y.includes(v)?"amarelo":"vermelho";
+function stullTw(T,rh){rh=Math.max(0,Math.min(100,rh));return T*Math.atan(0.151977*Math.sqrt(rh+8.313659))+Math.atan(T+rh)-Math.atan(rh-1.676331)+0.00391838*rh**1.5*Math.atan(0.023101*rh)-4.686035}
+function clearGhi(lat,lon,utc){const d=new Date(utc);const doy=Math.floor((d-Date.UTC(d.getUTCFullYear(),0,0))/864e5);const dec=23.45*Math.PI/180*Math.sin(2*Math.PI*(284+doy)/365);
+ const st=d.getUTCHours()+d.getUTCMinutes()/60+lon/15;const ha=15*(st-12)*Math.PI/180;const la=lat*Math.PI/180;const cz=Math.sin(la)*Math.sin(dec)+Math.cos(la)*Math.cos(dec)*Math.cos(ha);return cz<=0?0:1098*cz*Math.exp(-0.059/cz)}
+function pg(ws,day,x){const row=ws<2?0:ws<3?1:ws<5?2:ws<6?3:4;if(day){const ins=x>=700?2:x>=350?1:0;return[["B","B","A"],["C","B","B"],["C","C","B"],["D","D","C"],["D","D","C"]][row][ins]}return[["F","F"],["F","E"],["E","D"],["D","D"],["D","D"]][row][x>=50?1:0]}
+const pMax=a=>{const p=a.filter(v=>v!=null);return p.length?Math.max(...p):null};
+const pSum=a=>{const p=a.filter(v=>v!=null);return p.length?p.reduce((s,v)=>s+v,0):null};
+const relevant=h=>(h.P!=null&&h.P>=0.5)||(h.pop!=null&&h.pop>50);
+
+function computeProd(D){
+ const M=D.omm,lat=D.lat,lon=D.lon;if(!M||!M.hourly)return null;const h=M.hourly,off=M.utc_offset_seconds||0;
+ const col=(v,m)=>h[`${v}_${m}`]||h[v]||[];const g=v=>col(v,"best_match");
+ const twcQ={};if(D.f15){D.f15.validTimeLocal.forEach((t,i)=>twcQ[t.slice(0,13)]=D.f15.qpf[i])}
+ const all=h.time.map((t,i)=>{const pm={};P_MODELS.forEach(m=>pm[m]=col("precipitation",m)[i]??null);const k=t.slice(0,13);if(k in twcQ)pm.twc=twcQ[k];
+  return{t,utc:new Date(Date.parse(t+":00Z")-off*1000).toISOString(),T:g("temperature_2m")[i],UR:g("relative_humidity_2m")[i],Td:g("dew_point_2m")[i],P:g("precipitation")[i],pop:g("precipitation_probability")[i],v:g("wind_speed_10m")[i],gu:g("wind_gusts_10m")[i],dir:g("wind_direction_10m")[i],nb:g("cloud_cover")[i],cape:g("cape")[i],t80:g("temperature_80m")[i],day:g("is_day")[i]==null?null:!!g("is_day")[i],pm}});
+ const nowL=new Date(Date.now()+off*1000).toISOString().slice(0,13)+":00";const today=nowL.slice(0,10);
+ const start=all.findIndex(r=>r.t.slice(0,10)===today);const cur=all.findIndex(r=>r.t>=nowL);
+ // métricas por hora (metrics.py)
+ all.forEach((r,i)=>{const nx=n=>all.slice(i+1,i+1+n);
+  r.dT=r.T!=null&&r.UR!=null?r.T-stullTw(r.T,r.UR):null;r.vpd=r.T!=null&&r.UR!=null?0.6108*Math.exp(17.27*r.T/(r.T+237.3))*(1-Math.max(0,Math.min(100,r.UR))/100):null;
+  r.stab=r.v==null||r.day==null?null:(r.day?pg(r.v/3.6,true,clearGhi(lat,lon,r.utc)*(1-0.75*Math.pow(Math.max(0,Math.min(1,(r.nb||0)/100)),3.4))):(r.nb==null?null:pg(r.v/3.6,false,r.nb)));
+  r.inv=(r.T==null||r.v==null||r.nb==null||r.day==null||r.Td==null)?null:(r.t80!=null&&r.t80>r.T?"presente":(!r.day&&r.v<2&&r.nb<30&&r.T-r.Td<=2?"provavel":"ausente"));
+  r.gr=r.gu!=null&&r.v!=null&&r.v>0?r.gu/r.v:null;
+  const pv=all[i-1];r.dv=pv&&pv.dir!=null&&r.dir!=null?Math.abs(((r.dir-pv.dir+180)%360+360)%360-180):null;
+  r.ratio=r.T!=null&&r.UR!=null&&r.T>0?r.UR/r.T:null;
+  const vals=Object.values(r.pm).filter(x=>x!=null);if(vals.length){const dry=vals.filter(x=>x<0.2).length/vals.length;r.agr=dry>=0.7?"seco":(1-dry)>=0.7?"chuva":"divergente"}else r.agr=null;
+  r.p1=pMax(nx(1).map(x=>x.pop));r.p2=pMax(nx(2).map(x=>x.pop));r.p3=pMax(nx(3).map(x=>x.pop));r.p6=pMax(nx(6).map(x=>x.pop));
+  r.a1=pSum(nx(1).map(x=>x.P));r.a3=pSum(nx(3).map(x=>x.P));r.a6=pSum(nx(6).map(x=>x.P));r.imax=pMax(nx(6).map(x=>x.P));
+  r.h2r=48;r.nextRain=null;for(let j=i;j<Math.min(all.length,i+49);j++){if(relevant(all[j])){r.h2r=j-i;r.nextRain=all[j].t;break}}
+  let dh=0;for(let j=i;j<Math.min(all.length,i+48);j++){if(all[j].P!=null&&all[j].P>=0.2)break;dh++}r.dry=dh;
+  const st=[];for(let j=i;j<Math.min(all.length,i+12);j++){st.push(all[j]);if(relevant(all[j]))break}
+  const ms=[...new Set(st.flatMap(x=>Object.keys(x.pm)))];let vo=0,dr=0;ms.forEach(m=>{const a=st.map(x=>x.pm[m]);if(a.some(x=>x==null))return;vo++;if(a.every(x=>x<0.2))dr++});r.conf=vo?Math.round(1000*dr/vo)/10:null;
+  r.obs=i===cur&&D.obs&&D.obs.precip1Hour!=null?D.obs.precip1Hour:null});
+ const rows=all.slice(start);
+ const derSafe=r=>!((r.v!=null&&r.v<2)||(r.v!=null&&r.v>10)||(r.gu!=null&&r.gu>18)||r.inv==="presente"||(r.T!=null&&r.T>32)||(r.UR!=null&&r.UR<50)||(r.dv!=null&&r.dv>60));
+ let run=0;for(let k=rows.length-1;k>=0;k--){run=derSafe(rows[k])?run+1:0;rows[k].safe=run}
+ const at=rows.findIndex(r=>r.t>=nowL);
+ const res={rows:rows.slice(0,at+168),at,all,cur};
+ for(const [id,T] of Object.entries(PTABLES))res[id]=pEvaluate(T,res.rows,at);
+ res.ferrugem=pFerrugem(all,cur);
+ return res}
+
+const PTABLES={
+ pulverizacao:{nome:"Janela de pulverização",score:"share",ruler:[[100,"verde","FAVORÁVEL"],[0.1,"amarelo","ATENÇÃO"],[0,"vermelho","NÃO RECOMENDADO"]],blk:[],crit:[
+  ["temperatura","Temperatura",1,"15-35 °C","35-40 °C","<15 ou >40 °C",r=>r.T,nb([[15,35]],[[35,40]]),"°C",1],
+  ["umidade","Umidade relativa",1,"≥2,4 × T","2,0-2,3 × T","<2,0 × T",r=>r.ratio,nb([[2.4,null]],[[2.0,2.4,true,false]]),"× T",1],
+  ["janela_sem_chuva","Janela sem chuva",1,">4 h","1-4 h","<1 h",r=>r.h2r,nb([[4,null,false]],[[1,4]]),"h",0],
+  ["vento","Vento médio",0,"3,2-6,5 km/h","6,5-9,5 km/h","<3,2 ou >9,5 km/h",r=>r.v,nb([[3.2,6.5]],[[6.5,9.5]]),"km/h",1],
+  ["rajada","Rajadas",0,"≤12 km/h","12-18 km/h",">18 km/h",r=>r.gu,nb([[null,12]],[[12,18]]),"km/h",1],
+  ["delta_t","Delta T",0,"2-8 °C","8-10 °C","<2 ou >10 °C",r=>r.dT,nb([[2,8]],[[8,10]]),"°C",1],
+  ["vpd","VPD",0,"0,5-1,5 kPa","0,3-0,5 ou 1,5-2,0 kPa","<0,3 ou >2,0 kPa",r=>r.vpd,nb([[0.5,1.5]],[[0.3,0.5],[1.5,2.0]]),"kPa",2],
+  ["chuva_1h","Chuva próxima 1 h (prob.)",0,"<20 %","20-50 %",">50 %",r=>r.p1,nb([[null,20,true,false]],[[20,50]]),"%",0],
+  ["estabilidade","Estabilidade atmosférica",0,"C-D","B / E","A / F",r=>r.stab,cb(["C","D"],["B","E"]),"",0]]},
+ deriva:{nome:"Risco de deriva",ruler:[[85,"verde","BAIXO"],[70,"amarelo","ATENÇÃO"],[0,"vermelho","ALTO"]],
+  blk:[["Vento abaixo de 2 km/h",r=>r.v!=null&&r.v<2],["Vento acima de 10 km/h",r=>r.v!=null&&r.v>10],["Rajada acima de 18 km/h",r=>r.gu!=null&&r.gu>18],["Inversão térmica presente",r=>r.inv==="presente"],["Temperatura acima de 32 °C ou umidade abaixo de 50 %",r=>(r.T!=null&&r.T>32)||(r.UR!=null&&r.UR<50)],["Variação da direção acima de 60°",r=>r.dv!=null&&r.dv>60]],
+  crit:[["vento","Vento médio",3,"3-7 km/h","2-<3 ou >7-10 km/h","<2 ou >10 km/h",r=>r.v,nb([[3,7]],[[2,3,true,false],[7,10,false,true]]),"km/h",1],
+  ["rajada","Rajadas",2,"≤12 km/h",">12-18 km/h",">18 km/h",r=>r.gu,nb([[null,12]],[[12,18,false,true]]),"km/h",1],
+  ["fator_rajada","Fator de rajada",1,"≤1,5",">1,5-2,0",">2,0",r=>r.gr,nb([[null,1.5]],[[1.5,2,false,true]]),"",2],
+  ["variacao_direcao","Variação da direção",1,"≤30°",">30-60°",">60°",r=>r.dv,nb([[null,30]],[[30,60,false,true]]),"°",0],
+  ["temperatura","Temperatura",1,"18-28 °C","28-32 °C",">32 °C",r=>r.T,nb([[null,28]],[[28,32,false,true]]),"°C",1],
+  ["umidade","Umidade relativa",1,"≥60 %","50-59 %","<50 %",r=>r.UR,nb([[60,null]],[[50,60,true,false]]),"%",0],
+  ["inversao","Inversão térmica",2,"ausente","provável","presente",r=>r.inv,cb(["ausente"],["provavel"]),"",0],
+  ["estabilidade","Estabilidade atmosférica",1,"C-D","B / E","A / F",r=>r.stab,cb(["C","D"],["B","E"]),"",0],
+  ["janela_segura","Janela segura",1,"≥3 h","1-3 h","<1 h",r=>r.safe,nb([[3,null]],[[1,3]]),"h",0]]},
+ chuva:{nome:"Janela livre de chuva",ruler:[[85,"verde","JANELA SECA"],[65,"amarelo","ATENÇÃO"],[0,"vermelho","CHUVA IMINENTE"]],
+  blk:[["Chuva observada no local agora",r=>r.obs!=null&&r.obs>0],["Probabilidade acima de 70 % em 1 h com 1 mm ou mais",r=>r.p1!=null&&r.p1>70&&r.a1!=null&&r.a1>=1],["Chuva relevante em menos de 1 h",r=>r.h2r!=null&&r.h2r<1]],
+  crit:[["tempo_ate_chuva","Tempo até chuva relevante",3,"≥6 h","3-6 h","<3 h",r=>r.h2r,nb([[6,null]],[[3,6]]),"h",0],
+  ["prob_1h","Prob. chuva próxima 1 h",2,"<20 %","20-40 %",">40 %",r=>r.p1,nb([[null,20,true,false]],[[20,40]]),"%",0],
+  ["prob_3h","Prob. chuva próximas 3 h",1,"<30 %","30-60 %",">60 %",r=>r.p3,nb([[null,30,true,false]],[[30,60]]),"%",0],
+  ["prob_6h","Prob. chuva próximas 6 h",1,"<30 %","30-60 %",">60 %",r=>r.p6,nb([[null,30,true,false]],[[30,60]]),"%",0],
+  ["acumulado_3h","Acumulado próximas 3 h",1,"<0,5 mm","0,5-2 mm",">2 mm",r=>r.a3,nb([[null,0.5,true,false]],[[0.5,2]]),"mm",1],
+  ["acumulado_6h","Acumulado próximas 6 h",1,"<1 mm","1-5 mm",">5 mm",r=>r.a6,nb([[null,1,true,false]],[[1,5]]),"mm",1],
+  ["intensidade_max","Intensidade máx. prevista",1,"<1 mm/h","1-5 mm/h",">5 mm/h",r=>r.imax,nb([[null,1,true,false]],[[1,5]]),"mm/h",1],
+  ["concordancia","Concordância dos modelos",1,"seco em ≥70 %","divergentes","chuva em ≥70 %",r=>r.agr,cb(["seco"],["divergente"]),"",0],
+  ["horas_secas","Horas secas contínuas",1,"≥6 h","3-6 h","<3 h",r=>r.dry,nb([[6,null]],[[3,6]]),"h",0],
+  ["confianca","Confiança da janela",1,">75 %","50-74 %","<50 %",r=>r.conf,nb([[75,null,false]],[[50,75]]),"%",0]]}};
+
+function pEvaluate(T,rows,at){
+ const ev=rows.map(r=>{const vars=T.crit.map(([k,l,w,g,y,rd,read,cls,u,dec])=>{const v=read(r);const c=v==null?null:cls(v);return{k,l,w,g,y,rd,v,c,u,dec,counted:c!=null&&w>0}});
+  const cnt=vars.filter(x=>x.counted);let score=null;
+  if(T.score==="share"){score=cnt.length?Math.round(1000*cnt.filter(x=>x.c==="verde").length/cnt.length)/10:null}
+  else{const tw=cnt.reduce((s,x)=>s+x.w,0);score=tw?Math.round(10*cnt.reduce((s,x)=>s+pScoreBy[x.c]*x.w,0)/tw)/10:null}
+  const fired=T.blk.filter(b=>b[1](r)).map(b=>b[0]);
+  if(fired.length)return{t:r.t,r,score:0,color:"vermelho",label:T.ruler[T.ruler.length-1][2],fired,vars};
+  let band=null;if(score!=null)for(const b of T.ruler)if(score>=b[0]&&(!band||b[0]>=band[0]))band=b;
+  return{t:r.t,r,score,color:band?band[1]:null,label:band?band[2]:null,fired,vars}});
+ ev.forEach(e=>e.k=pColor[e.color]||"");
+ return{ev,at}}
+
+/* janelas (windows.py) */
+const pRuns=a=>{const out=[];let s=null;a.forEach((e,i)=>{if(e.color==="verde"){if(s==null)s=i}else if(s!=null){out.push([s,i-1]);s=null}});if(s!=null)out.push([s,a.length-1]);return out};
+const pWin=(a,s,e)=>({a:a[s].r,z:a[e].r,n:e-s+1});
+function pBest(a,h=12){const w=h?a.slice(0,h):a;const r=pRuns(w);if(!r.length)return null;const b=r.reduce((x,y)=>(y[1]-y[0])>(x[1]-x[0])?y:x);return pWin(w,b[0],b[1])}
+function pNext(a){const w=a.slice(0,48);const r=pRuns(w);if(!r.length)return null;const after=r[0][0]===0?r[0][1]+1:0;const f=r.find(([s])=>s>=after);return f?pWin(w,f[0],f[1]):null}
+const pDur=n=>`${n}:00`;
+const pRange=b=>b?`${hh(b.a.t)}–${hh(new Date(Date.parse(b.z.t+":00Z")+36e5).toISOString().slice(0,16))}`:"--";
+function pDom(cs){const p=cs.filter(Boolean);if(!p.length)return null;for(const c of["vermelho","amarelo","verde"])if(p.filter(x=>x===c).length*2>=p.length)return c;const o=p.sort((a,b)=>["vermelho","amarelo","verde"].indexOf(a)-["vermelho","amarelo","verde"].indexOf(b));return o[Math.floor(o.length/2)]}
+const pQual=(c,w)=>c==null?"":{verde:w[0],amarelo:w[1],vermelho:w[2]}[c];
+const pVar=(e,k)=>{const v=e&&e.vars.find(x=>x.k===k);return v?v.c:null};
+const pDisp=x=>x.v==null?"—":typeof x.v==="string"?({ausente:"Ausente",provavel:"Provável",presente:"Presente"}[x.v]||x.v):`${fmt(x.v,x.dec)}${x.u==="°"?"°":x.u?" "+x.u:""}`;
+
+function pScreen(id,P){const T=PTABLES[id],E=P[id],at=E.at,ev=E.ev,now=ev[at],focus=ev.slice(at,at+48);
+ let color=now.color,label=now.label;
+ if(id==="pulverizacao"){const cs=new Set(focus.slice(0,12).map(e=>e.color));color=cs.has("verde")?"verde":cs.has("amarelo")?"amarelo":"vermelho";label={verde:"FAVORÁVEL",amarelo:"ATENÇÃO",vermelho:"NÃO FAVORÁVEL"}[color]}
+ const best=pBest(focus,12),nr=now.r;let k1,k2,k3,h1,h2;
+ if(id==="pulverizacao"){const nx=pNext(focus);const today=nr.t.slice(0,10);
+  h1=kpi("Melhor janela",pRange(best),best?dayShort(best.a.t):"Sem janela nas próximas 12 h","c-g");h2=kpi("Duração disponível",best?pDur(best.n):"--","Janela verde contínua");
+  k1=kpi("Próxima janela",nx?dayShort(nx.a.t):"--",nx?pRange(nx):"Sem janela em 48 h");k2=kpi("Risco de chuva",nr.p1!=null?fmt(nr.p1)+" %":"--",pQual(pVar(now,"chuva_1h"),["Baixo","Moderado","Alto"]));k3=kpi("Horas operacionais",focus.filter(e=>e.r.t.slice(0,10)===today&&e.color==="verde").length+"h","Hoje")}
+ else if(id==="deriva"){const crit=focus.find(e=>e.color==="vermelho");
+  h1=kpi("Melhor condição",pRange(best),best?dayShort(best.a.t):"Sem condição segura nas próximas 12 h","c-g");h2=kpi("Janela segura",best?pDur(best.n):"--","Duração da melhor condição");
+  k1=kpi("Vento",nr.v!=null?fmt(nr.v)+" km/h":"--",pQual(pVar(now,"vento"),["Adequado","Moderado","Crítico"]));k2=kpi("Rajadas",nr.gu!=null?fmt(nr.gu)+" km/h":"--",pQual(pVar(now,"rajada"),["Adequadas","Moderadas","Críticas"]));k3=kpi("Próxima condição crítica",crit?(crit===focus[0]?"Agora":hh(crit.r.t)):"--",crit?"Alto risco":"Sem hora crítica nas próximas 48 h")}
+ else{const all=P.all;let acc=null,evh=0;if(nr.nextRain){let s=all.findIndex(x=>x.t===nr.nextRain);acc=0;for(let j=s;j<all.length&&relevant(all[j]);j++){acc+=all[j].P||0;evh++}}
+  const pl=p=>p==null?"":p<10?"Muito baixa":p<30?"Baixa":p<60?"Moderada":"Alta";
+  h1=kpi("Tempo até a chuva",(nr.nextRain?"":">")+fmt(nr.h2r)+"h","Até chuva de 0,5 mm ou prob. >50 %");h2=kpi("Chuva prevista",nr.nextRain?hh(nr.nextRain):"--",nr.nextRain?"Início do evento":"Sem chuva no horizonte");
+  k1=kpi("Probabilidade 2h",nr.p2!=null?fmt(nr.p2)+" %":"--",pl(nr.p2));k2=kpi("Probabilidade 6h",nr.p6!=null?fmt(nr.p6)+" %":"--",pl(nr.p6));k3=kpi("Acumulado previsto",acc!=null?fmt(acc,1)+" mm":"--",evh?"Evento único":"")}
+ const days=groupDays(ev);
+ return page(`<div class="hero">${hero("Condição atual · em produção",label||"—",pColor[color]||"n",now.fired.length?now.fired.join(", "):(id==="pulverizacao"?"Pela melhor cor das próximas 12 h":`Nota ${fmt(now.score)}`))}${h1}${h2}</div>
+ ${strip(ev.slice(at),"k",12,"Condição por hora","(próximas 12 horas)")}
+ <div class="foot">${k1}${k2}${k3}</div>
+ ${week(ev,"k",hs=>hs.filter(e=>e.color==="verde").length+" h verdes")}`,
+ legend([["g",`Verde: ${T.ruler[0][2].toLowerCase()}`],["y",`Amarelo: ${T.ruler[1][2].toLowerCase()}`],["r",`Vermelho: ${T.ruler[2][2].toLowerCase()}`]])+
+ vtable(now.vars.map(x=>[x.l+(x.w?` <span class="loc">(peso ${x.w})</span>`:` <span class="loc">(só leitura)</span>`),pDisp(x),x.g,x.y,x.rd,pColor[x.c]||""]))+
+ (T.blk.length?`<section class="panel side"><h3>Bloqueadores</h3><ul>${T.blk.map(b=>`<li class="${now.fired.includes(b[0])?"c-r":""}">${b[0]}${now.fired.includes(b[0])?" — acionado":""}</li>`).join("")}</ul></section>`:"")+
+ notes([["n","Índice já em produção no AgriVox, replicado aqui com as mesmas regras do código atual, para conferência no mesmo lugar."],...(id==="pulverizacao"?[["n","A cor da hora sai de três fatores (temperatura, umidade ≥ 2,4 × T e mais de 4 h até chuva): verde com os três, amarelo com um ou dois, vermelho com nenhum. As outras linhas são só leitura."]]:[])]))}
+
+/* ferrugem (ferrugem.py) */
+const FT=[[10,0],[20,1],[26,1],[26.5,0.75],[27.5,0]],FM=[[6,.30],[8,.45],[10,.70],[12,1]];
+const pInterp=(x,v)=>x<=v[0][0]?v[0][1]:x>=v[v.length-1][0]?v[v.length-1][1]:(()=>{for(let i=1;i<v.length;i++)if(x<=v[i][0]){const[a,b]=v[i-1],[c,d]=v[i];return b+(d-b)*(x-a)/(c-a)}})();
+const fFT=t=>t<10||t>27.5?0:pInterp(t,FT),fFM=d=>d<6?0:pInterp(d,FM);
+const FBANDS=[[20,"Baixa","verde"],[40,"Baixa a moderada","verde"],[60,"Moderada","amarelo"],[80,"Alta","amarelo"],[100,"Muito alta","vermelho"]];
+const fBand=x=>FBANDS.find(b=>x<=b[0])||FBANDS[4];
+function pFerrugem(all,cur){const wet=r=>{if(r.T!=null&&r.Td!=null&&r.UR!=null)return(r.T-r.Td)<=2||r.UR>=90||(r.P||0)>0;if(r.P>0)return true;if(r.UR!=null&&r.UR>=90)return true;return false};
+ const evs=[];let c=[];const flush=()=>{if(c.length){const ts=c.map(x=>x.T).filter(x=>x!=null);const m=ts.length?Math.round(10*ts.reduce((a,b)=>a+b,0)/ts.length)/10:null;
+  evs.push({h:c.slice(),s:c[0].t,e:new Date(Date.parse(c[c.length-1].t+":00Z")+36e5).toISOString().slice(0,16),n:c.length,mt:m,mn:ts.length?Math.min(...ts):null,mx:ts.length?Math.max(...ts):null,ifi:m==null?0:Math.round(1000*fFT(m)*fFM(c.length))/10});c=[]}};
+ all.forEach(r=>{if(wet(r))c.push(r);else flush()});flush();
+ const nowT=all[cur].t;const on=evs.find(e=>e.s<=nowT&&nowT<e.e);const past=evs.filter(e=>e.s<=nowT);const latest=on||past[past.length-1];
+ const add=(t,h)=>new Date(Date.parse(t+":00Z")+h*36e5).toISOString().slice(0,16);const hz=add(nowT,72);
+ const up72=evs.filter(e=>e.s>=nowT&&e.s<hz);const crit=up72.filter(e=>e.ifi>0).sort((a,b)=>b.ifi-a.ifi||b.n-a.n)[0];
+ const fav=(a,b)=>evs.filter(e=>e.ifi>=41).reduce((s,e)=>s+e.h.filter(r=>r.t>=a&&r.t<b).length,0);const wh=(a,b)=>evs.reduce((s,e)=>s+e.h.filter(r=>r.t>=a&&r.t<b).length,0);
+ const f72=fav(nowT,hz),f1=fav(nowT,add(nowT,36));const tr=f72-f1>f1?"Crescente":f72-f1<f1?"Decrescente":"Estável";
+ const today=nowT.slice(0,10);const dayIfi=(a,b)=>Math.max(0,...evs.filter(e=>e.s<b&&e.e>a).map(e=>e.ifi));
+ const fut=[];for(let d=0;d<7;d++){const a=add(today+"T00:00",24*d),b=add(a,24);if(a>all[all.length-1].t)break;fut.push({d:a.slice(0,10),ifi:dayIfi(a,b),fav:fav(a,b),wet:wh(a,b)})}
+ const pst=[];for(let d=7;d>=1;d--){const a=add(today+"T00:00",-24*d),b=add(a,24);const de=evs.filter(e=>e.s>=a&&e.s<b&&e.s<nowT);pst.push({d:a.slice(0,10),ifi:Math.max(0,...de.map(e=>e.ifi)),wet:de.reduce((s,e)=>s+e.n,0),n:de.length})}
+ return{evs,on,latest,crit,f72,tr,fut,pst,nowT}}
+
+function pFerrugemScreen(P){const F=P.ferrugem;const cb2=x=>pColor[fBand(x)[2]];const cur=F.on?fBand(F.on.ifi):null;
+ const evTxt=e=>e?`${dayShort(e.s)} ${hh(e.s)}–${hh(e.e)}`:"—";
+ return page(`<div class="hero">${hero("Condição atual · em produção",F.on?`FAVORABILIDADE ${cur[1].toUpperCase()}`:"SEM MOLHAMENTO FOLIAR",F.on?cb2(F.on.ifi):"g",F.on?`Molhamento em curso, IFI ${fmt(F.on.ifi)}`:"Folha seca agora: nenhum evento de infecção em curso")}${kpi("Molhamento contínuo",F.latest?F.latest.n+" h":"—",F.latest?`Último evento · ${fmt(F.latest.mt,1)} °C de média`:"")}${kpi("Horas favoráveis",F.f72+" h","Próximas 72 h · tendência "+F.tr.toLowerCase())}</div>
+ <div class="foot">${kpi("Janela crítica",F.crit?evTxt(F.crit):"Sem evento",F.crit?`IFI ${fmt(F.crit.ifi)} · ${fBand(F.crit.ifi)[1].toLowerCase()}`:"Próximas 72 h")}${kpi("Temperatura favorável","20–26 °C","Platô do fator de temperatura")}${kpi("Dias com evento favorável",F.pst.reduce((s,d)=>s+(d.ifi>=41?1:0),0)+" de 7","Últimos 7 dias")}</div>
+ <section class="panel days"><h3>Próximos 7 dias <span>maior IFI do dia</span></h3>${F.fut.map((d,i)=>`<div class="dayrow"><span class="lab">${dayLabel(d.d,i)}</span><div class="cells ${i>=3?"dim":""}" style="grid-template-columns:1fr"><i class="${cb2(d.ifi)}" title="IFI ${fmt(d.ifi)}"></i></div><span class="sum">${fBand(d.ifi)[1].toLowerCase()} · ${d.fav} h fav.</span></div>`).join("")}<div class="foot-note">Dias 4 a 7: previsão de médio prazo, menor confiança.</div></section>
+ <section class="panel days"><h3>Últimos 7 dias</h3>${F.pst.map(d=>`<div class="dayrow"><span class="lab">${dayLabel(d.d,9)}</span><div class="cells" style="grid-template-columns:1fr"><i class="${cb2(d.ifi)}"></i></div><span class="sum">${d.wet} h molhadas · IFI ${fmt(d.ifi)}</span></div>`).join("")}</section>`,
+ legend([["g","Verde: baixa ou baixa a moderada (IFI até 40)"],["y","Amarelo: moderada ou alta (41–80)"],["r","Vermelho: muito alta (81–100)"]])+
+ racional(["IFI = fator de temperatura × fator de molhamento × 100, por evento de horas molhadas seguidas.","Hora molhada (regra em produção): T − Td ≤ 2 °C, umidade ≥ 90 % ou chuva > 0.","Fator de temperatura: 0 a 10 °C, 1 de 20 a 26 °C, 0 a partir de 27,5 °C. Fator de molhamento: 0 abaixo de 6 h, 1 a partir de 12 h.","Fontes: Yorinori et al. (Embrapa Soja); o índice considera só o clima, não o inóculo."],"indicar a favorabilidade climática à ferrugem-asiática da soja.")+
+ notes([["n","Índice já em produção no AgriVox, replicado com a regra de molhamento atual. Pela decisão da 2ª rodada, ele vai passar a usar o mesmo motor de molhamento dos novos índices; as faixas precisarão ser revalidadas."]]))}
+
+const PROD_IDS=["pulverizacao","deriva","chuva"];
+PROD_IDS.forEach(id=>V[id]=R=>R.prod?pScreen(id,R.prod):`<div class="ask"><strong>${S.data&&S.data.omm===undefined?"Os índices em produção só aparecem na versão publicada, que busca os dados ao vivo.":"Os dados dos índices em produção não carregaram. Tente calcular de novo."}</strong></div>`);
+V.ferrugem=R=>R.prod?pFerrugemScreen(R.prod):V.chuva(R);
+
 /* ---------- painel ---------- */
 function painel(R){const H=R.H,n=H[0];const card=(id,t,c,lab,big,p)=>`<a class="card" href="#${id}"><h3>${t}</h3><span class="pill ${PILL[c]}">${lab}</span><div class="big">${big}</div><p>${p}</p></a>`;
  const bc=longest(H.slice(0,24),r=>r.col==="g",2);const bs=S.crop?longest(H.slice(0,72).filter(r=>{const h=+r.t.slice(11,13);return h>=6&&h<=22}),r=>r.sem==="g",4):null;
@@ -520,7 +690,10 @@ function painel(R){const H=R.H,n=H[0];const card=(id,t,c,lab,big,p)=>`<a class="
  ${card("orvalho","Ponto de orvalho",ifoMx>=71?"b":ifoMx>=31?"y":"g",`IFO ${fmt(n.IFO)} agora`,`Próx. 18 h: IFO ${fmt(ifoMx)}`,ifoMx>=71?(H.slice(0,18).some(r=>r.state==="orvalho")?"Orvalho provável":"Orvalho possível, sem horário de início"):"Baixa chance ou atenção")}
  ${card("mofo","Mofo-branco",mb(m.IFMB)[1],"Favorabilidade "+mb(m.IFMB)[0],fmt(m.IFMB)+" / 100",`Molhamento previsto em 48 h: ${m.molh48} h`)}
  ${card("manchas","Manchas foliares",cl3(n.IFM)[1],cl3(n.IFM)[0]+" agora","Próx. 24 h: "+cl3(R.man.blk(0,24).nota)[0],"De 24 a 72 h: "+cl3(R.man.blk(24,72).nota)[0])}
- </section><p class="foot-note">${upd()}. Fontes: previsão horária (15 dias) e observação das últimas 24 h; radiação, solo e histórico de modelos meteorológicos.</p>`}
+ </section>
+ <h2 style="font-size:16px;margin-top:8px">Índices já em produção no AgriVox</h2>
+ ${R.prod?`<section class="grid">${["pulverizacao","deriva","chuva"].map(id=>{const E=R.prod[id],e=E.ev[E.at];return card(id,PTABLES[id].nome,pColor[e.color]||"n",e.label||"—",e.fired.length?"Bloqueado":"Nota "+fmt(e.score),e.fired[0]||"Hora atual")}).join("")}${(()=>{const F=R.prod.ferrugem,b=F.on?fBand(F.on.ifi):null;return card("ferrugem","Ferrugem-asiática",F.on?pColor[b[2]]:"g",F.on?"Favorabilidade "+b[1].toLowerCase():"Sem molhamento agora",F.f72+" h favoráveis","Próximas 72 h · tendência "+F.tr.toLowerCase())})()}</section>`:`<p class="loc">${S.data&&S.data.omm===undefined?"Disponíveis só na versão publicada, que busca os dados ao vivo.":"Os dados dos índices em produção não carregaram."}</p>`}
+ <p class="foot-note">${upd()}. Fontes: previsão horária (15 dias) e observação das últimas 24 h; radiação, solo e histórico de modelos meteorológicos.</p>`}
 
 /* ---------- roteamento ---------- */
 function render(){const v=(location.hash||"#painel").slice(1);const ok=INDICES.some(x=>x[0]===v)?v:"painel";
