@@ -300,7 +300,7 @@ function compute(D,crop){
  /* ---- ponto de orvalho (respostas 15, 18–21, 42–43) ---- */
  H.forEach(r=>{r.orv=r.IFO>=71?"b":r.IFO>=31?"y":"g"});
  /* ---- horas operacionais (respostas 34–40) ---- */
- H.forEach((r,i)=>{r.pulv=r.T>=15&&r.T<=35&&(r.UR/r.T)>=2.4&&r.h2r>4;
+ H.forEach((r,i)=>{r.pulv=r.T>=15&&r.T<=35&&(r.UR/r.T)>=2.4&&r.h2r>4&&r.traf>0;
   const chuvaAgora=r.P1>=0.1?0:(r.pop2>50?0:r.pop2>=20?50:100);const post=fwd(i,4,25);
   const postS=post<2?(r.T>30?50:100):two(post,2,5,20,35); // abaixo de 2 mm = atenção (literatura; nota ao Floss)
   r.IACA=0.40*chuvaAgora+0.30*postS+0.20*(r.traf*50)+0.10*lin(r.v,25,15);
@@ -446,8 +446,8 @@ V.operacoes=R=>{const H=R.H,n=H[0];const J=r=>{const h=+r.t.slice(11,13);return 
  ${week(H,"og",hs=>hs.filter(r=>J(r)&&r.og==="g").length+" h disponíveis")}`,
  legend([["g","Verde: boa disponibilidade operacional"],["y","Amarelo: disponibilidade moderada"],["r","Vermelho: poucas horas úteis"]])+
  vtable([["Chuva / prob. 2 h",`${fmt(n.P1,1)} mm · ${fmt(n.pop2)} %`,"0 · < 20","20–50 %","≥ 0,1 mm ou > 50 %",n.P1>=0.1||n.pop2>50?"r":n.pop2>=20?"y":"g"],["Trafegabilidade climática",["baixa","média","alta"][n.traf],"alta","média","baixa",["r","y","g"][n.traf]],["Vento",n.v+" km/h","< 20","20–30","> 30",band(n.v,x=>x<20,x=>x<=30)],["Rajadas",n.g+" km/h","< 35","35–50","> 50",band(n.g,x=>x<35,x=>x<=50)],["Visibilidade",fmt(n.vis,1)+" km","≥ 5","1–5","< 1",band(n.vis,x=>x>=5,x=>x>=1)],["Temporal",n.temporal,"baixo","moderado","alto",{baixo:"g",moderado:"y",alto:"r"}[n.temporal]]])+
- racional(["Operações gerais (IOG) = 35% ausência de chuva + 30% trafegabilidade + 15% vento/rajadas + 10% visibilidade + 10% temporal.","Pulverização: regra verde em produção (temperatura, umidade ≥ 2,4 × T, mais de 4 h até chuva).","Semeadura, colheita e adubação: índices próprios."],"consolidar em horas úteis o tempo operacional disponível.")+
- notes([["n","Adubação calculada para ureia em cobertura. Chuva posterior abaixo de 2 mm só é atenção com temperatura acima de 30 °C (2ª rodada); abaixo disso não penaliza."],["n","A pulverização em produção não considera trafegabilidade: pode aparecer disponível com o solo encharcado."],["p","Trafegabilidade usa o índice de umidade do solo na escala do local, aceito pelo Floss na 2ª rodada."]]))};
+ racional(["Operações gerais (IOG) = 35% ausência de chuva + 30% trafegabilidade + 15% vento/rajadas + 10% visibilidade + 10% temporal.","Pulverização: regra verde em produção (temperatura, umidade ≥ 2,4 × T, mais de 4 h até chuva), bloqueada com trafegabilidade baixa.","Semeadura, colheita e adubação: índices próprios."],"consolidar em horas úteis o tempo operacional disponível.")+
+ notes([["n","Adubação calculada para ureia em cobertura. Chuva posterior abaixo de 2 mm só é atenção com temperatura acima de 30 °C (2ª rodada); abaixo disso não penaliza."],["n","Pulverização: regra verde em produção, bloqueada quando a trafegabilidade está baixa (2ª rodada)."],["p","Trafegabilidade usa o índice de umidade do solo na escala do local, aceito pelo Floss na 2ª rodada."]]))};
 
 V.radiacao=R=>{const H=R.H,n=H[0],d0=H[0].t.slice(0,10);const tot=R.dR[d0],cm=R.climDia[d0];
  const lab=n.IRSD==null?["SOL ABAIXO DO HORIZONTE","n"]:n.IRSD>=85?["MUITO ALTA","g"]:n.IRSD>=70?["ALTA","g"]:n.IRSD>=50?["MODERADA","y"]:n.IRSD>=30?["BAIXA","r"]:["MUITO BAIXA","r"];
